@@ -35,6 +35,7 @@ pub enum UiAction {
     DismissVictory,
     DismissFactory,
     DismissWorm,
+    SkipTutorial,
     /// Toggle a tool mode (clicking the active mode returns to Inspect).
     SetMode(UiMode),
     /// The player clicked this world tile with the active tool.

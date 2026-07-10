@@ -12,6 +12,7 @@ const SPECIES_JSON: &str = include_str!("../assets/data/species.json");
 const BALANCE_JSON: &str = include_str!("../assets/data/balance.json");
 const BUILDINGS_JSON: &str = include_str!("../assets/data/buildings.json");
 const UNLOCKS_JSON: &str = include_str!("../assets/data/unlocks.json");
+const TUTORIAL_JSON: &str = include_str!("../assets/data/tutorial.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameConfig {
@@ -159,12 +160,40 @@ pub struct UnlockDef {
     pub building: Option<String>,
 }
 
+/// What completes a tutorial step (checked every frame while active).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TutorialDone {
+    /// The player panned or zoomed the camera.
+    CameraMoved,
+    /// Enough sim time has passed to have read the panel.
+    SimTimeAtLeast { value: f32 },
+    /// The player reassigned any worker.
+    AnyReassign,
+    /// A famine has come and gone: food is back above `value` after the
+    /// first-crisis window.
+    FamineRecovered { value: f32 },
+    /// The player placed any build site.
+    SitePlaced,
+    /// The first victory landed.
+    Won,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TutorialStepDef {
+    pub id: String,
+    pub title: String,
+    pub body: String,
+    pub done: TutorialDone,
+}
+
 #[derive(Debug, Clone)]
 pub struct GameData {
     pub config: GameConfig,
     pub species: DataRegistry<SpeciesDef>,
     pub buildings: DataRegistry<BuildingDef>,
     pub unlocks: Vec<UnlockDef>,
+    pub tutorial: Vec<TutorialStepDef>,
     pub balance: Balance,
 }
 
@@ -174,6 +203,7 @@ impl GameData {
         let species = DataRegistry::from_embedded_json(SPECIES_JSON, "id")?;
         let buildings = DataRegistry::from_embedded_json(BUILDINGS_JSON, "id")?;
         let unlocks: Vec<UnlockDef> = load_embedded_json_labeled("unlocks", UNLOCKS_JSON)?;
+        let tutorial: Vec<TutorialStepDef> = load_embedded_json_labeled("tutorial", TUTORIAL_JSON)?;
         let balance = load_embedded_json_labeled("balance", BALANCE_JSON)?;
 
         Ok(Self {
@@ -181,6 +211,7 @@ impl GameData {
             species,
             buildings,
             unlocks,
+            tutorial,
             balance,
         })
     }

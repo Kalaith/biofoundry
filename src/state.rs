@@ -100,6 +100,13 @@ pub struct GameSession {
     /// The campaign monument: the Colossal Worm has awakened.
     pub worm_awake: bool,
     pub worm_shown: bool,
+    /// Next tutorial step index (== tutorial length when finished).
+    pub tutorial_step: usize,
+    /// The player skipped the tutorial outright.
+    pub tutorial_dismissed: bool,
+    /// Action flags the tutorial watches for.
+    pub tutorial_reassigned: bool,
+    pub tutorial_built: bool,
 }
 
 impl GameSession {
@@ -167,6 +174,10 @@ impl GameSession {
             worm_fed: 0.0,
             worm_awake: false,
             worm_shown: false,
+            tutorial_step: 0,
+            tutorial_dismissed: false,
+            tutorial_reassigned: false,
+            tutorial_built: false,
         };
 
         for _ in 0..balance.start_miners {
@@ -265,6 +276,7 @@ impl GameSession {
         };
         creature.job = to;
         creature.clear_task();
+        self.tutorial_reassigned = true;
         true
     }
 

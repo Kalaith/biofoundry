@@ -26,6 +26,7 @@ pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi, mode: &UiMod
     draw_food_grid_panel(session, data, food_panel);
     draw_jobs_panel(session, data, jobs_panel, mouse, &mut actions);
     draw_tools_panel(session, data, tools_panel, mode, mouse, &mut actions);
+    let tutorial_panel = draw_tutorial_panel(session, data, mouse, &mut actions);
 
     let victory_up = session.won && !session.victory_shown;
     let factory_up = session.factory_complete && !session.factory_shown;
@@ -72,6 +73,7 @@ pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi, mode: &UiMod
     let pointer_over_ui = victory_up
         || factory_up
         || worm_up
+        || tutorial_panel.is_some_and(|r| r.contains_point(mouse))
         || [top_bar, food_panel, jobs_panel, tools_panel]
             .iter()
             .any(|r| r.contains_point(mouse));
@@ -417,6 +419,48 @@ fn draw_tools_panel(
     ) {
         actions.push(UiAction::Load);
     }
+}
+
+/// The tutorial card, top-right: current step, progress chip, and a skip
+/// button. Returns its rect while visible (for pointer-over-UI checks).
+fn draw_tutorial_panel(
+    session: &GameSession,
+    data: &GameData,
+    mouse: Vec2,
+    actions: &mut Vec<UiAction>,
+) -> Option<Rect> {
+    let step = crate::tutorial::current_step(session, data)?;
+    let (done, total) = crate::tutorial::progress(session, data);
+
+    let panel = Rect::new(LOGICAL_WIDTH - 342.0, 72.0, 330.0, 128.0);
+    draw_surface_with_title(
+        panel,
+        Some(&format!("Tutorial {}/{} — {}", done + 1, total, step.title)),
+        &panel_style(),
+        TextStyle::new(15.0, dark::TEXT_BRIGHT),
+    );
+
+    draw_text_block(
+        &step.body,
+        panel.x + 14.0,
+        panel.y + 42.0,
+        panel.w - 28.0,
+        56.0,
+        14.0,
+        4.0,
+        dark::TEXT,
+    );
+
+    if hud_button(
+        Rect::new(panel.right() - 78.0, panel.bottom() - 30.0, 64.0, 22.0),
+        "Skip",
+        true,
+        mouse,
+    ) {
+        actions.push(UiAction::SkipTutorial);
+    }
+
+    Some(panel)
 }
 
 fn draw_goal_overlay(

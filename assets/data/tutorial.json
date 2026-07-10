@@ -1,0 +1,38 @@
+[
+  {
+    "id": "welcome",
+    "title": "Welcome to the warren",
+    "body": "Every worker is a creature, and food is the power grid. Right-drag or WASD to look around; scroll to zoom.",
+    "done": { "kind": "camera_moved" }
+  },
+  {
+    "id": "food_grid",
+    "title": "Read the Food Grid",
+    "body": "Top-left: Production vs Upkeep. When the stockpile empties, everyone slows to a crawl. Keep the net positive.",
+    "done": { "kind": "sim_time_at_least", "value": 60.0 }
+  },
+  {
+    "id": "jobs",
+    "title": "Assign the crew",
+    "body": "Miners dig ore, Carriers feed the kitchen, Cooks make stew, Guards fight. Use – and + in the Jobs panel to reassign a goblin.",
+    "done": { "kind": "any_reassign" }
+  },
+  {
+    "id": "famine",
+    "title": "Weather the famine",
+    "body": "The first famine hits around minute five. Shift Miners into Carriers before the meter empties — hungry workers slow the whole warren.",
+    "done": { "kind": "famine_recovered", "value": 30.0 }
+  },
+  {
+    "id": "build",
+    "title": "Grow the grid",
+    "body": "Banked ore builds new farms and pots. Open Build & Dig, pick a Farm, and click open floor near your Cook Pot — shorter hauls, faster stew.",
+    "done": { "kind": "site_placed" }
+  },
+  {
+    "id": "goals",
+    "title": "Secure the warren",
+    "body": "Deliver 50 ore and hold a 100-food surplus to win. Beyond that: charcoal, living furnaces, raids — and something vast sleeping below.",
+    "done": { "kind": "won" }
+  }
+]

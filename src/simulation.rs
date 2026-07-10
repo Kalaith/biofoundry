@@ -168,6 +168,7 @@ pub fn try_place_build_site(
             ore_needed: def.cost_ore,
             ore_delivered: 0,
         });
+    session.tutorial_built = true;
     true
 }
 

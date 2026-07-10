@@ -6,6 +6,7 @@ use crate::data::GameData;
 use crate::simulation::{self, MAX_TICKS_PER_FRAME, SIM_DT};
 use crate::state::creatures::Job;
 use crate::state::{GameSession, GameState, StateTransition};
+use crate::tutorial::{self, TutorialInputs};
 use crate::ui::{self, UiAction, UiMode};
 use macroquad::prelude::*;
 use macroquad_toolkit::camera::{Camera2D, Camera2DConfig, CameraBounds};
@@ -29,6 +30,8 @@ pub struct Game {
     accumulator: f32,
     /// Edge detector for the famine warning toast.
     famine_announced: bool,
+    /// Last frame's camera pose, for the tutorial's "look around" step.
+    last_camera: (Vec2, f32),
 }
 
 impl Game {
@@ -50,6 +53,7 @@ impl Game {
             audio,
             accumulator: 0.0,
             famine_announced: false,
+            last_camera: (vec2(0.0, 0.0), 1.0),
         }
     }
 
@@ -61,6 +65,7 @@ impl Game {
                 self.transition(StateTransition::StartWarren);
                 if let GameState::Warren(session) = &mut self.state {
                     // Stage a mid-build factory: banked ore, ghosts, digs.
+                    session.tutorial_dismissed = true;
                     session.economy.ore_stock = 24;
                     session.economy.food = 60.0;
                     let spawn = session.spawn_tile();
@@ -95,6 +100,7 @@ impl Game {
             "famine" => {
                 self.transition(StateTransition::StartWarren);
                 if let GameState::Warren(session) = &mut self.state {
+                    session.tutorial_dismissed = true;
                     for _ in 0..600 {
                         simulation::tick(session, &self.data);
                     }
@@ -111,6 +117,7 @@ impl Game {
                 self.transition(StateTransition::StartWarren);
                 if let GameState::Warren(session) = &mut self.state {
                     // Stage an active raid with guards responding.
+                    session.tutorial_dismissed = true;
                     session.economy.food = 60.0;
                     let species = &self.data.species;
                     for _ in 0..2 {
@@ -131,6 +138,7 @@ impl Game {
                 self.transition(StateTransition::StartWarren);
                 if let GameState::Warren(session) = &mut self.state {
                     // Stage the capture→study→adapt chain mid-flow.
+                    session.tutorial_dismissed = true;
                     let spawn = session.spawn_tile();
                     let mut spots: Vec<TilePos> = session
                         .world
@@ -160,6 +168,7 @@ impl Game {
                 self.transition(StateTransition::StartWarren);
                 if let GameState::Warren(session) = &mut self.state {
                     // Stage the awakened monument.
+                    session.tutorial_dismissed = true;
                     let spawn = session.spawn_tile();
                     let spot = session
                         .world
@@ -270,6 +279,16 @@ impl Game {
             }
 
             self.camera.update(dt, false);
+
+            // Tutorial: advance any steps the player just satisfied. The
+            // "look around" step keys off actual camera motion.
+            let camera_moved = (self.camera.target - self.last_camera.0).length() > 4.0
+                || (self.camera.zoom - self.last_camera.1).abs() > 0.01;
+            if tutorial::advance(session, &self.data, TutorialInputs { camera_moved }) {
+                self.audio.play(Sfx::Select);
+            }
+            self.last_camera = (self.camera.target, self.camera.zoom);
+
             // F-keys avoid colliding with WASD camera pan.
             if is_key_pressed(KeyCode::F5) {
                 self.events.push(UiAction::Save);
@@ -398,6 +417,12 @@ impl Game {
                     session.worm_shown = true;
                 }
             }
+            UiAction::SkipTutorial => {
+                if let GameState::Warren(session) = &mut self.state {
+                    session.tutorial_dismissed = true;
+                    self.audio.play(Sfx::Select);
+                }
+            }
             UiAction::SetMode(mode) => {
                 self.mode = if self.mode == mode {
                     UiMode::Inspect
@@ -518,6 +543,8 @@ impl Game {
         let (sx, sy) = session.world.spawn.to_f32();
         let center = vec2((sx + 0.5) * tile, (sy + 0.5) * tile);
         self.camera = Camera2D::with_config(center, 1.0, camera_config(&self.data, tile));
+        // Don't let the reset itself count as "the player looked around".
+        self.last_camera = (self.camera.target, self.camera.zoom);
     }
 }
 

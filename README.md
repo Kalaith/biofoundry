@@ -59,6 +59,11 @@ Design and phase plan: see [`biofoundry_plan.md`](biofoundry_plan.md).
   `publish.ps1 -DryRun` green end-to-end, all seven capture scenes
   verified.
 
+- **Post-plan**: a six-step tutorial (`assets/data/tutorial.json`) shown
+  as a HUD card in new warrens — each step auto-advances when the player
+  actually does the thing (look around, reassign a job, weather the
+  famine, place a building, win). Skippable; progress persists in saves.
+
 **All plan phases (0–5) are complete.** Deferred backlog: slime janitor,
 bat courier, spoilage/troughs (plan §Phase 2), morale/overcrowding and
 multi-outpost worm transit (§Phase 4), and a pause-feeding toggle for the
