@@ -1,6 +1,7 @@
 //! Top-level game: owns the state machine, camera, tool mode, and
 //! fixed-timestep accumulator, and dispatches `UiAction` intents.
 
+use crate::audio::{Audio, Sfx};
 use crate::data::GameData;
 use crate::simulation::{self, MAX_TICKS_PER_FRAME, SIM_DT};
 use crate::state::creatures::Job;
@@ -23,6 +24,7 @@ pub struct Game {
     mode: UiMode,
     events: EventBus<UiAction>,
     notifications: NotificationManager,
+    audio: Audio,
     /// Real time not yet consumed by fixed-step sim ticks.
     accumulator: f32,
     /// Edge detector for the famine warning toast.
@@ -36,6 +38,7 @@ impl Game {
         });
 
         let camera = Camera2D::with_config(vec2(0.0, 0.0), 1.0, camera_config(&data, 1.0));
+        let audio = Audio::load().await;
 
         Self {
             data,
@@ -44,6 +47,7 @@ impl Game {
             mode: UiMode::Inspect,
             events: EventBus::new(),
             notifications: NotificationManager::new(),
+            audio,
             accumulator: 0.0,
             famine_announced: false,
         }
@@ -204,39 +208,49 @@ impl Game {
                         "A starving {} deserted the warren!",
                         deserter.job.label().to_lowercase()
                     ));
+                    self.audio.play(Sfx::Deny);
                 }
                 if report.won_this_tick {
                     self.notifications.success("The warren thrives — victory!");
+                    self.audio.play(Sfx::Complete);
                 }
                 if report.factory_this_tick {
                     self.notifications
                         .success("The Biofoundry roars — factory complete!");
+                    self.audio.play(Sfx::Complete);
                 }
                 if report.worm_this_tick {
                     self.notifications
                         .success("The ground heaves — the Colossal Worm awakens!");
+                    self.audio.play(Sfx::Worm);
                 }
                 if report.wild.raid_started {
                     self.notifications
                         .danger("Raid! Gnarls are coming for the larder.");
+                    self.audio.play(Sfx::Alarm);
                 }
                 if report.wild.raid_survived {
                     self.notifications.success("The raid is over — we held.");
+                    self.audio.play(Sfx::Complete);
                 }
                 for _ in 0..report.wild.captured {
                     self.notifications
                         .success("A wild beetle was snared — specimen housed.");
+                    self.audio.play(Sfx::Capture);
                 }
                 for _ in 0..report.wild.guards_killed {
                     self.notifications
                         .danger("A guard fell defending the warren.");
+                    self.audio.play(Sfx::Deny);
                 }
                 for name in &report.wild.unlocked {
                     self.notifications.success(format!("Unlocked: {name}"));
+                    self.audio.play(Sfx::Complete);
                 }
                 if report.wild.bred_beetle {
                     self.notifications
                         .info("The breeding pit hatched a new beetle hauler.");
+                    self.audio.play(Sfx::Capture);
                 }
                 self.accumulator -= SIM_DT;
                 ticks += 1;
@@ -250,6 +264,7 @@ impl Game {
                 self.famine_announced = true;
                 self.notifications
                     .warning("Famine! The stockpile is empty — workers are slowing.");
+                self.audio.play(Sfx::Alarm);
             } else if session.economy.food > 5.0 {
                 self.famine_announced = false;
             }
@@ -348,8 +363,10 @@ impl Game {
                     if simulation::try_attract_beetle(session, &self.data) {
                         self.notifications
                             .success("A beetle hauler joins the warren.");
+                        self.audio.play(Sfx::Capture);
                     } else {
                         self.notifications.warning("Not enough ore banked.");
+                        self.audio.play(Sfx::Deny);
                     }
                 }
             }
@@ -358,9 +375,11 @@ impl Game {
                     if simulation::try_attract_salamander(session, &self.data) {
                         self.notifications
                             .success("A salamander curls into the smelter den.");
+                        self.audio.play(Sfx::Capture);
                     } else {
                         self.notifications
                             .warning("Needs a Smelter Den and enough banked ore.");
+                        self.audio.play(Sfx::Deny);
                     }
                 }
             }
@@ -385,6 +404,7 @@ impl Game {
                 } else {
                     mode
                 };
+                self.audio.play(Sfx::Select);
             }
             UiAction::WorldClick(tile) => self.world_click(tile),
             UiAction::Save => self.save_game(),
@@ -408,12 +428,16 @@ impl Game {
                         .unwrap_or(0);
                     self.notifications
                         .info(format!("Site placed — carriers will deliver {cost} ore."));
+                    self.audio.play(Sfx::Build);
                 } else {
                     self.notifications.warning("Can't build there.");
+                    self.audio.play(Sfx::Deny);
                 }
             }
             UiMode::Dig => {
-                session.toggle_dig_mark(tile);
+                if session.toggle_dig_mark(tile) {
+                    self.audio.play(Sfx::Select);
+                }
             }
             UiMode::Inspect => {}
         }
@@ -465,9 +489,11 @@ impl Game {
             return;
         };
         let species = &self.data.species;
-        session.reassign(from, to, |s| {
+        if session.reassign(from, to, |s| {
             species.get(s).map(|d| d.reassignable).unwrap_or(false)
-        });
+        }) {
+            self.audio.play(Sfx::Select);
+        }
     }
 
     fn transition(&mut self, transition: StateTransition) {

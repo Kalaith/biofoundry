@@ -51,7 +51,18 @@ Design and phase plan: see [`biofoundry_plan.md`](biofoundry_plan.md).
   emergency trickle) so endless metal can't starve construction. Full
   campaign probe: famine 5.5 min → victory ~15 → factory ~26 → **worm
   awakened ~49 sim-minutes**, at most one worker lost.
-- **Phase 5 (next)**: audio, title polish, catalog thumbnail, publish.
+- **Phase 5 (done)**: synthesized SFX bank (7 WAVs via toolkit
+  `SoundManager`, loaded from the published asset pack, degrading to
+  silence headless), title-screen backdrop (worm silhouette, mushroom
+  clusters, spores), `catalog_thumbnail.png` (16:9 title capture), and
+  full publish verification: 34 tests, clippy `-D warnings`, WASM 1.29 MB,
+  `publish.ps1 -DryRun` green end-to-end, all seven capture scenes
+  verified.
+
+**All plan phases (0–5) are complete.** Deferred backlog: slime janitor,
+bat courier, spoilage/troughs (plan §Phase 2), morale/overcrowding and
+multi-outpost worm transit (§Phase 4), and a pause-feeding toggle for the
+Worm Shrine.
 
 ## Run
 
