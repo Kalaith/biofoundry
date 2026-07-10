@@ -152,6 +152,38 @@ impl Game {
                     }
                 }
             }
+            "worm" => {
+                self.transition(StateTransition::StartWarren);
+                if let GameState::Warren(session) = &mut self.state {
+                    // Stage the awakened monument.
+                    let spawn = session.spawn_tile();
+                    let spot = session
+                        .world
+                        .tiles
+                        .iter_with_pos()
+                        .filter(|(pos, _)| {
+                            session.can_place_building(*pos) && pos.manhattan_distance(&spawn) >= 3
+                        })
+                        .map(|(pos, _)| pos)
+                        .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y));
+                    if let Some(spot) = spot {
+                        session
+                            .buildings
+                            .push(crate::state::structures::Building::new("worm_shrine", spot));
+                    }
+                    session.economy.metal = self.data.balance.win2_metal;
+                    session.won = true;
+                    session.victory_shown = true;
+                    session.factory_complete = true;
+                    session.factory_shown = true;
+                    session.worm_fed = self.data.balance.worm_awaken_at;
+                    session.worm_awake = true;
+                    session.worm_shown = true;
+                    for _ in 0..300 {
+                        simulation::tick(session, &self.data);
+                    }
+                }
+            }
             // "warren" and the harness default "gameplay" boot straight
             // into a fresh session on the config seed.
             _ => self.transition(StateTransition::StartWarren),
@@ -179,6 +211,10 @@ impl Game {
                 if report.factory_this_tick {
                     self.notifications
                         .success("The Biofoundry roars — factory complete!");
+                }
+                if report.worm_this_tick {
+                    self.notifications
+                        .success("The ground heaves — the Colossal Worm awakens!");
                 }
                 if report.wild.raid_started {
                     self.notifications
@@ -256,7 +292,13 @@ impl Game {
                 let hover = self.hover_tile(session);
 
                 self.camera.begin();
-                ui::warren::draw_world(session, self.data.config.tile_size, &self.mode, hover);
+                ui::warren::draw_world(
+                    session,
+                    &self.data,
+                    self.data.config.tile_size,
+                    &self.mode,
+                    hover,
+                );
                 set_default_camera();
 
                 let virtual_ui = begin_virtual_ui_frame(ui::LOGICAL_WIDTH, ui::LOGICAL_HEIGHT);
@@ -330,6 +372,11 @@ impl Game {
             UiAction::DismissFactory => {
                 if let GameState::Warren(session) = &mut self.state {
                     session.factory_shown = true;
+                }
+            }
+            UiAction::DismissWorm => {
+                if let GameState::Warren(session) = &mut self.state {
+                    session.worm_shown = true;
                 }
             }
             UiAction::SetMode(mode) => {

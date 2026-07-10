@@ -49,6 +49,13 @@
     "requires_unlock": "breeding_pit"
   },
   {
+    "id": "worm_shrine",
+    "name": "Worm Shrine",
+    "cost_ore": 20,
+    "buildable": true,
+    "requires_unlock": "worm_shrine"
+  },
+  {
     "id": "stockpile",
     "name": "Stockpile",
     "cost_ore": 0,

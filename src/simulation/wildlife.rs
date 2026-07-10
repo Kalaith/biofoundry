@@ -290,10 +290,18 @@ fn grant_unlocks(session: &mut GameSession, data: &GameData, report: &mut WildRe
         if session.unlocked.contains(&unlock.id) {
             continue;
         }
-        if session.progress.counter(&unlock.counter) >= unlock.threshold {
+        if counter_value(session, &unlock.counter) >= unlock.threshold {
             session.unlocked.insert(unlock.id.clone());
             report.unlocked.push(unlock.name.clone());
         }
+    }
+}
+
+/// Session-wide counter lookup: progression counters plus economy stats.
+fn counter_value(session: &GameSession, name: &str) -> u32 {
+    match name {
+        "metal_forged" => session.economy.metal,
+        other => session.progress.counter(other),
     }
 }
 

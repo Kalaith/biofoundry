@@ -28,6 +28,7 @@
   "smelt_batch_charcoal": 1.0,
   "smelt_batch_time_sec": 10.0,
   "smelter_ore_target": 6,
+  "smelter_bank_reserve": 12,
   "salamander_hunger_drain_sec": 120.0,
   "carrier_food_reserve": 40.0,
   "guard_upkeep_factor": 2.0,
@@ -46,5 +47,8 @@
   "famine_recover_food": 20.0,
   "win_food_surplus": 100.0,
   "win_ore_delivered": 50,
-  "win2_metal": 20
+  "win2_metal": 20,
+  "worm_food_per_min": 12.0,
+  "worm_feed_reserve": 25.0,
+  "worm_awaken_at": 60.0
 }

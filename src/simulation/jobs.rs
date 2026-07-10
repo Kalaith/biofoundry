@@ -348,17 +348,28 @@ fn ore_destination(creature: &Creature, session: &GameSession, data: &GameData) 
         .min_by_key(|p| (p.manhattan_distance(&from), p.x, p.y))
 }
 
-/// Total ore the warren wants moved: site remainders plus smelter top-ups.
+/// Total ore the warren wants moved: site remainders plus smelter
+/// top-ups. Smelters only draw when the bank is above its reserve, so
+/// endless metal-making can't starve construction.
 fn ore_wanted(session: &GameSession, data: &GameData) -> u32 {
     let sites: u32 = session.build_sites.iter().map(|s| s.remaining()).sum();
-    let smelters: u32 = session
-        .buildings_of("smelter")
-        .map(|b| {
-            data.balance
-                .smelter_ore_target
-                .saturating_sub(b.stock(Good::Ore) as u32)
-        })
-        .sum();
+    let smelters: u32 = if session.economy.ore_stock > data.balance.smelter_bank_reserve {
+        session
+            .buildings_of("smelter")
+            .map(|b| {
+                data.balance
+                    .smelter_ore_target
+                    .saturating_sub(b.stock(Good::Ore) as u32)
+            })
+            .sum()
+    } else {
+        // Below the reserve, dens still get an emergency trickle so the
+        // salamander never starves while the bank saves up.
+        session
+            .buildings_of("smelter")
+            .map(|b| 2u32.saturating_sub(b.stock(Good::Ore) as u32))
+            .sum()
+    };
     sites + smelters
 }
 

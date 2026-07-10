@@ -29,7 +29,20 @@ pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi, mode: &UiMod
 
     let victory_up = session.won && !session.victory_shown;
     let factory_up = session.factory_complete && !session.factory_shown;
-    if factory_up {
+    let worm_up = session.worm_awake && !session.worm_shown;
+    if worm_up {
+        draw_goal_overlay(
+            "The Colossal Worm Awakens",
+            &format!(
+                "Fed on {:.0} offerings, the great worm rises from the deep and coils around the warren that raised it.\n\nThe campaign is complete in {:.0} minutes. The warren — and its worm — play on.",
+                session.worm_fed,
+                simulation::sim_seconds(session) / 60.0
+            ),
+            UiAction::DismissWorm,
+            mouse,
+            &mut actions,
+        );
+    } else if factory_up {
         draw_goal_overlay(
             "Factory Complete",
             &format!(
@@ -58,6 +71,7 @@ pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi, mode: &UiMod
 
     let pointer_over_ui = victory_up
         || factory_up
+        || worm_up
         || [top_bar, food_panel, jobs_panel, tools_panel]
             .iter()
             .any(|r| r.contains_point(mouse));
@@ -227,13 +241,25 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
     } else {
         dark::TEXT_DIM
     };
+    let shrine_built = session.buildings_of("worm_shrine").next().is_some();
+    let worm_note = if session.worm_awake {
+        " · Worm AWAKE".to_owned()
+    } else if shrine_built {
+        format!(
+            " · Worm {:.0}/{:.0}",
+            session.worm_fed, data.balance.worm_awaken_at
+        )
+    } else {
+        String::new()
+    };
     draw_ui_text_ex(
         &format!(
-            "Metal {}/{} · Captured {} · Raids {}",
+            "Metal {}/{} · Captured {} · Raids {}{}",
             session.economy.metal,
             data.balance.win2_metal,
             session.progress.beetles_captured,
-            session.progress.raids_survived
+            session.progress.raids_survived,
+            worm_note
         ),
         x,
         y,

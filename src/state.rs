@@ -95,6 +95,11 @@ pub struct GameSession {
     pub breed_in: f32,
     /// Blackout episode tracker for the famines_survived counter.
     pub famine_active: bool,
+    /// Food offered at the Worm Shrine so far.
+    pub worm_fed: f32,
+    /// The campaign monument: the Colossal Worm has awakened.
+    pub worm_awake: bool,
+    pub worm_shown: bool,
 }
 
 impl GameSession {
@@ -159,6 +164,9 @@ impl GameSession {
             raid_active: false,
             breed_in: balance.breed_interval_sec,
             famine_active: false,
+            worm_fed: 0.0,
+            worm_awake: false,
+            worm_shown: false,
         };
 
         for _ in 0..balance.start_miners {

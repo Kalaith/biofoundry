@@ -20,6 +20,16 @@
     "building": null
   },
   {
+    "id": "worm_shrine",
+    "name": "Worm Shrine",
+    "description": "The forge-song echoes deep. Something vast stirs below. Unlocks the Worm Shrine.",
+    "counter": "metal_forged",
+    "threshold": 20,
+    "effect": "unlock_building",
+    "value": 0.0,
+    "building": "worm_shrine"
+  },
+  {
     "id": "preservation",
     "name": "Preservation Techniques",
     "description": "Surviving a famine teaches careful storage. Farms hold 50% more.",

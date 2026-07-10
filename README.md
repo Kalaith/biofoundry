@@ -42,8 +42,16 @@ Design and phase plan: see [`biofoundry_plan.md`](biofoundry_plan.md).
   job fights them off (fed creatures regenerate; starving guards lose —
   the desertion spiral is real). Full-run probe with defense in the mix:
   factory complete ~25 sim-minutes plus endless raid pressure after.
-- **Phase 4 (next)**: tier-2 monster / Colossal Worm victory monument,
-  morale-lite, endless framing.
+- **Phase 4 (done)**: the Colossal Worm campaign monument. Forging 20
+  metal unlocks the Worm Shrine; once built, the worm demands food
+  offerings (a 12/min power draw that pauses below a reserve so it can't
+  blackout the warren alone). Sating it awakens the worm — campaign
+  complete, endless mode continues with the beast coiling around its
+  shrine. Smelters now draw banked ore only above a reserve (with an
+  emergency trickle) so endless metal can't starve construction. Full
+  campaign probe: famine 5.5 min → victory ~15 → factory ~26 → **worm
+  awakened ~49 sim-minutes**, at most one worker lost.
+- **Phase 5 (next)**: audio, title polish, catalog thumbnail, publish.
 
 ## Run
 

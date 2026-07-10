@@ -86,6 +86,9 @@ pub struct Balance {
     pub smelt_batch_time_sec: f32,
     /// Carriers keep each smelter's ore stock topped up to this level.
     pub smelter_ore_target: u32,
+    /// Smelter refills only draw from bank above this reserve, so endless
+    /// metal never starves construction of ore.
+    pub smelter_bank_reserve: u32,
     /// Seconds for a charcoal-eater to go from fed to starving without
     /// charcoal at its den.
     pub salamander_hunger_drain_sec: f32,
@@ -118,6 +121,13 @@ pub struct Balance {
     pub win_ore_delivered: u32,
     /// Metal to forge for the extended "Factory Complete" goal.
     pub win2_metal: u32,
+    /// The awakened worm's appetite: the final power draw on the grid.
+    pub worm_food_per_min: f32,
+    /// Offerings pause below this food level so feeding can't blackout
+    /// the warren outright.
+    pub worm_feed_reserve: f32,
+    /// Total food offerings required to awaken the Colossal Worm.
+    pub worm_awaken_at: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

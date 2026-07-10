@@ -26,6 +26,7 @@ pub struct TickReport {
     pub deserters: Vec<Creature>,
     pub won_this_tick: bool,
     pub factory_this_tick: bool,
+    pub worm_this_tick: bool,
     pub wild: wildlife::WildReport,
 }
 
@@ -90,10 +91,28 @@ pub fn tick(session: &mut GameSession, data: &GameData) -> TickReport {
         factory_this_tick = true;
     }
 
+    // The Worm Shrine: offerings drain the larder (the worm is the final
+    // power draw), pausing below the reserve so feeding can't blackout
+    // the warren on its own.
+    let mut worm_this_tick = false;
+    if !session.worm_awake && session.buildings_of("worm_shrine").next().is_some() {
+        let headroom = (session.economy.food - balance.worm_feed_reserve).max(0.0);
+        let bite = (balance.worm_food_per_min / 60.0 * dt).min(headroom);
+        if bite > 0.0 {
+            session.economy.food -= bite;
+            session.worm_fed += bite;
+        }
+        if session.worm_fed >= balance.worm_awaken_at {
+            session.worm_awake = true;
+            worm_this_tick = true;
+        }
+    }
+
     TickReport {
         deserters,
         won_this_tick,
         factory_this_tick,
+        worm_this_tick,
         wild,
     }
 }
@@ -437,6 +456,7 @@ mod tests {
         let mut farm2 = false;
         let mut placed = false;
         let mut attracted = false;
+        let mut shrined = false;
 
         let mut guarded = 0;
         let done_at = run_until(
@@ -512,25 +532,98 @@ mod tests {
                 {
                     attracted = try_attract_salamander(s, &data);
                 }
+                // The endgame monument: shrine up, offerings flow, and the
+                // food grid scales up to feed the worm (beetle + 3rd farm).
+                if s.factory_complete
+                    && !shrined
+                    && s.unlocked.contains("worm_shrine")
+                    && s.economy.ore_stock >= 20
+                {
+                    let spawn = s.spawn_tile();
+                    let spot = s
+                        .world
+                        .tiles
+                        .iter_with_pos()
+                        .filter(|(pos, _)| s.can_place_building(*pos))
+                        .map(|(pos, _)| pos)
+                        .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y));
+                    if let Some(spot) = spot {
+                        shrined = try_place_build_site(s, &data, "worm_shrine", spot);
+                    }
+                }
+                // Scale the food grid for the worm's appetite: a beetle
+                // hauler and a third farm as soon as the factory pays out.
+                if s.factory_complete
+                    && !s.creatures.iter().any(|c| c.species == "beetle")
+                    && s.economy.ore_stock >= data.balance.beetle_ore_cost + 10
+                {
+                    let _ = try_attract_beetle(s, &data);
+                    let spawn = s.spawn_tile();
+                    let spot = s
+                        .world
+                        .tiles
+                        .iter_with_pos()
+                        .filter(|(pos, _)| s.can_place_building(*pos))
+                        .map(|(pos, _)| pos)
+                        .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y));
+                    if let Some(spot) = spot {
+                        let _ = try_place_build_site(s, &data, "farm", spot);
+                    }
+                }
             },
-            |s| s.factory_complete,
+            |s| s.worm_awake,
         );
 
         assert!(session.won, "first victory should land on the way");
         assert!(attracted, "the salamander never arrived");
+        assert!(session.factory_complete, "factory goal should complete");
         assert!(
-            session.factory_complete,
-            "expected the factory goal within 70 sim-minutes"
+            session.worm_awake,
+            "expected the Colossal Worm within 70 sim-minutes"
         );
         let minutes = done_at / 60.0;
         eprintln!(
-            "[balance probe] factory complete at {minutes:.1} sim-min ({} metal, {} deserted)",
-            session.economy.metal, session.economy.deserted
+            "[balance probe] worm awakened at {minutes:.1} sim-min ({} metal, {} deserted, {} raids survived)",
+            session.economy.metal, session.economy.deserted, session.progress.raids_survived
         );
         assert!(
-            (20.0..=60.0).contains(&minutes),
-            "full run took {minutes:.1} min; want a ~30-minute sitting"
+            (25.0..=65.0).contains(&minutes),
+            "campaign took {minutes:.1} min; want a 30-50 minute sitting"
         );
+        assert!(
+            session.economy.deserted <= 1,
+            "the worm's appetite should cost at most one worker, lost {}",
+            session.economy.deserted
+        );
+    }
+
+    /// Worm offerings drain the larder but never below the reserve.
+    #[test]
+    fn worm_feeding_respects_the_reserve() {
+        use crate::state::structures::Building;
+        let (data, mut session) = boot(11);
+        let spot = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .find(|(pos, _)| session.can_place_building(*pos))
+            .map(|(pos, _)| pos)
+            .unwrap();
+        session.buildings.push(Building::new("worm_shrine", spot));
+        session.creatures.clear(); // isolate the worm's draw
+        session.economy.food = data.balance.worm_feed_reserve + 3.0;
+
+        for _ in 0..1200 {
+            tick(&mut session, &data);
+        }
+
+        assert!(session.worm_fed > 0.0, "offerings should accumulate");
+        assert!(
+            session.economy.food >= data.balance.worm_feed_reserve - 1e-3,
+            "feeding must pause at the reserve, food = {}",
+            session.economy.food
+        );
+        assert!(!session.worm_awake);
     }
 
     /// Capture → study → adapt: snared wild beetles advance the counter,

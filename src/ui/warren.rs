@@ -1,6 +1,7 @@
 //! Warren world rendering: tiles, buildings, build sites, dig marks, and
 //! creatures in camera space. Pure view — reads the session and draws.
 
+use crate::data::GameData;
 use crate::state::creatures::{Creature, Job};
 use crate::state::structures::Building;
 use crate::state::world::Tile;
@@ -12,11 +13,17 @@ use macroquad_toolkit::prelude::*;
 
 /// Draw the world in camera space. `hover` is the tile under the cursor
 /// when the pointer is free (used for build/dig ghosts).
-pub fn draw_world(session: &GameSession, tile_size: f32, mode: &UiMode, hover: Option<TilePos>) {
+pub fn draw_world(
+    session: &GameSession,
+    data: &GameData,
+    tile_size: f32,
+    mode: &UiMode,
+    hover: Option<TilePos>,
+) {
     draw_tiles(session, tile_size);
     draw_dig_marks(session, tile_size);
     for building in &session.buildings {
-        draw_building(session, building, tile_size);
+        draw_building(session, data, building, tile_size);
     }
     draw_build_sites(session, tile_size);
     for creature in &session.creatures {
@@ -25,7 +32,40 @@ pub fn draw_world(session: &GameSession, tile_size: f32, mode: &UiMode, hover: O
     for wild in &session.wilds {
         draw_wild(wild, tile_size);
     }
+    if session.worm_awake {
+        draw_colossal_worm(session, tile_size);
+    }
     draw_tool_ghost(session, tile_size, mode, hover);
+}
+
+/// The awakened monument: a vast segmented worm coiling out of the
+/// shrine — cosmetic, but it earns its screen space.
+fn draw_colossal_worm(session: &GameSession, ts: f32) {
+    let Some(shrine) = session.buildings_of("worm_shrine").next() else {
+        return;
+    };
+    let (sx, sy) = (
+        shrine.pos.x as f32 * ts + ts * 0.5,
+        shrine.pos.y as f32 * ts + ts * 0.5,
+    );
+    let t = session.tick as f32 * 0.02;
+    for i in (0..12).rev() {
+        let u = i as f32;
+        let angle = t + u * 0.55;
+        let radius = ts * (0.6 + u * 0.34);
+        let px = sx + angle.cos() * radius;
+        let py = sy + angle.sin() * radius * 0.55;
+        let size = ts * (0.42 - u * 0.02);
+        draw_circle(px, py, size, Color::new(0.42, 0.32, 0.45, 1.0));
+        draw_circle_lines(px, py, size, 2.0, Color::new(0.70, 0.55, 0.85, 0.9));
+    }
+    // The head, nearest the shrine.
+    draw_circle(
+        sx + t.cos() * ts * 0.6,
+        sy + t.sin() * ts * 0.33,
+        ts * 0.46,
+        Color::new(0.50, 0.38, 0.55, 1.0),
+    );
 }
 
 fn draw_wild(wild: &crate::state::wildlife::WildCreature, ts: f32) {
@@ -132,7 +172,7 @@ fn draw_dig_marks(session: &GameSession, ts: f32) {
     }
 }
 
-fn draw_building(session: &GameSession, building: &Building, ts: f32) {
+fn draw_building(session: &GameSession, data: &GameData, building: &Building, ts: f32) {
     use crate::state::creatures::Good;
     let (x, y) = (building.pos.x as f32 * ts, building.pos.y as f32 * ts);
     match building.kind.as_str() {
@@ -280,6 +320,31 @@ fn draw_building(session: &GameSession, building: &Building, ts: f32) {
                 ts * 0.08,
                 Color::new(0.62, 0.40, 0.75, 1.0),
             );
+        }
+        "worm_shrine" => {
+            let (cx, cy) = (x + ts * 0.5, y + ts * 0.5);
+            // A ring of standing stones around a dark maw.
+            draw_circle(cx, cy, ts * 0.38, Color::new(0.10, 0.08, 0.12, 1.0));
+            for i in 0..6 {
+                let a = i as f32 * std::f32::consts::TAU / 6.0;
+                draw_circle(
+                    cx + a.cos() * ts * 0.34,
+                    cy + a.sin() * ts * 0.34,
+                    ts * 0.07,
+                    Color::new(0.55, 0.50, 0.62, 1.0),
+                );
+            }
+            // Offering progress ring.
+            let frac = (session.worm_fed / data.balance.worm_awaken_at).clamp(0.0, 1.0);
+            if frac > 0.0 {
+                draw_circle_lines(
+                    cx,
+                    cy,
+                    ts * 0.46,
+                    3.0,
+                    Color::new(0.75, 0.55, 0.95, 0.35 + 0.6 * frac),
+                );
+            }
         }
         "stockpile" => {
             draw_rectangle_lines(
