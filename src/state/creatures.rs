@@ -22,6 +22,13 @@ impl Job {
     }
 }
 
+/// What a creature is holding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Good {
+    Mushroom,
+    Ore,
+}
+
 /// What a creature is currently doing. Movement is generic: while `path` is
 /// non-empty the creature walks it; task logic runs on arrival.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -33,6 +40,13 @@ pub enum Task {
         vein: TilePos,
         remaining: f32,
     },
+    /// Walking to stand next to a designated rock tile, then carve it.
+    GoDig(TilePos),
+    Digging {
+        mark: TilePos,
+        remaining: f32,
+    },
+    /// Carry ore home to the stockpile.
     DeliverOre,
     /// Walking to a mushroom source (farm tile or wild patch).
     GoFetch(TilePos),
@@ -41,10 +55,19 @@ pub enum Task {
         source: TilePos,
         remaining: f32,
     },
-    DeliverMushrooms,
-    /// Walking to the cook pot.
-    GoCook,
+    /// Carry mushrooms to this cook pot.
+    DeliverMushrooms(TilePos),
+    /// Walking to the stockpile to load construction ore.
+    GoPickupOre,
+    PickingUpOre {
+        remaining: f32,
+    },
+    /// Carry construction ore to this build site.
+    DeliverBuildMaterial(TilePos),
+    /// Walking to this cook pot to work it.
+    GoCook(TilePos),
     Cooking {
+        pot: TilePos,
         remaining: f32,
     },
 }
@@ -61,8 +84,8 @@ pub struct Creature {
     /// Remaining waypoints, front first.
     pub path: Vec<TilePos>,
     pub task: Task,
-    /// Mushrooms (carriers) or ore (miners) currently carried.
-    pub carrying: u32,
+    /// What's on this creature's back, if anything.
+    pub carrying: Option<(Good, u32)>,
     /// 1.0 = fed, 0.0 = starving. Drives work speed (brownout).
     pub satiation: f32,
     /// Seconds spent at zero satiation (blackout → desertion).
@@ -79,7 +102,7 @@ impl Creature {
             y: tile.y as f32 + 0.5,
             path: Vec::new(),
             task: Task::Idle,
-            carrying: 0,
+            carrying: None,
             satiation: 1.0,
             starving_for: 0.0,
         }
@@ -87,6 +110,39 @@ impl Creature {
 
     pub fn tile(&self) -> TilePos {
         TilePos::new(self.x.floor() as i32, self.y.floor() as i32)
+    }
+
+    pub fn carried(&self, good: Good) -> u32 {
+        match self.carrying {
+            Some((g, n)) if g == good => n,
+            _ => 0,
+        }
+    }
+
+    pub fn add_carried(&mut self, good: Good, amount: u32) {
+        if amount == 0 {
+            return;
+        }
+        match &mut self.carrying {
+            Some((g, n)) if *g == good => *n += amount,
+            _ => self.carrying = Some((good, amount)),
+        }
+    }
+
+    /// Remove up to `amount` of `good`; returns how much came off.
+    pub fn take_carried(&mut self, good: Good, amount: u32) -> u32 {
+        let Some((g, n)) = &mut self.carrying else {
+            return 0;
+        };
+        if *g != good {
+            return 0;
+        }
+        let taken = amount.min(*n);
+        *n -= taken;
+        if *n == 0 {
+            self.carrying = None;
+        }
+        taken
     }
 
     /// Brownout curve: fed 100%, hungry 50%, starving 25%.
@@ -104,7 +160,7 @@ impl Creature {
     pub fn clear_task(&mut self) {
         self.task = Task::Idle;
         self.path.clear();
-        self.carrying = 0;
+        self.carrying = None;
     }
 }
 
@@ -124,5 +180,19 @@ mod tests {
         assert_eq!(c.work_speed(), 0.25);
         c.satiation = 0.0;
         assert_eq!(c.work_speed(), 0.25);
+    }
+
+    #[test]
+    fn carried_goods_accounting() {
+        let mut c = Creature::new(1, "goblin", Job::Carrier, TilePos::new(0, 0));
+
+        c.add_carried(Good::Mushroom, 2);
+        assert_eq!(c.carried(Good::Mushroom), 2);
+        assert_eq!(c.carried(Good::Ore), 0);
+
+        assert_eq!(c.take_carried(Good::Ore, 5), 0);
+        assert_eq!(c.take_carried(Good::Mushroom, 1), 1);
+        assert_eq!(c.take_carried(Good::Mushroom, 5), 1);
+        assert!(c.carrying.is_none());
     }
 }

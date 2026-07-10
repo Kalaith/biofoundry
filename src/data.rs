@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 const GAME_CONFIG_JSON: &str = include_str!("../assets/data/game_config.json");
 const SPECIES_JSON: &str = include_str!("../assets/data/species.json");
 const BALANCE_JSON: &str = include_str!("../assets/data/balance.json");
+const BUILDINGS_JSON: &str = include_str!("../assets/data/buildings.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameConfig {
@@ -53,6 +54,8 @@ pub struct Balance {
     pub patch_regrow_sec: f32,
     pub vein_ore_yield: u32,
     pub mine_time_sec: f32,
+    /// Time for a miner to carve one designated rock tile into floor.
+    pub dig_time_sec: f32,
     /// Time to gather a load at the farm or a wild patch.
     pub haul_pickup_sec: f32,
     pub cook_batch_mushrooms: u32,
@@ -68,10 +71,21 @@ pub struct Balance {
     pub win_ore_delivered: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildingDef {
+    pub id: String,
+    pub name: String,
+    /// Ore that carriers must deliver to the build site.
+    pub cost_ore: u32,
+    /// Whether it appears in the player's build menu.
+    pub buildable: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct GameData {
     pub config: GameConfig,
     pub species: DataRegistry<SpeciesDef>,
+    pub buildings: DataRegistry<BuildingDef>,
     pub balance: Balance,
 }
 
@@ -79,11 +93,13 @@ impl GameData {
     pub fn load() -> Result<Self, String> {
         let config = load_embedded_json_labeled("game_config", GAME_CONFIG_JSON)?;
         let species = DataRegistry::from_embedded_json(SPECIES_JSON, "id")?;
+        let buildings = DataRegistry::from_embedded_json(BUILDINGS_JSON, "id")?;
         let balance = load_embedded_json_labeled("balance", BALANCE_JSON)?;
 
         Ok(Self {
             config,
             species,
+            buildings,
             balance,
         })
     }

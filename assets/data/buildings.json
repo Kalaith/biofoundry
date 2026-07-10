@@ -1,0 +1,20 @@
+[
+  {
+    "id": "farm",
+    "name": "Mushroom Farm",
+    "cost_ore": 10,
+    "buildable": true
+  },
+  {
+    "id": "cook_pot",
+    "name": "Cook Pot",
+    "cost_ore": 8,
+    "buildable": true
+  },
+  {
+    "id": "stockpile",
+    "name": "Stockpile",
+    "cost_ore": 0,
+    "buildable": false
+  }
+]

@@ -31,10 +31,11 @@ pub fn tick(session: &mut GameSession, data: &GameData) -> TickReport {
     let dt = SIM_DT;
     let balance = &data.balance;
 
-    // Generators: the farm grows, wild patches regrow.
-    session.economy.farm_mushrooms = (session.economy.farm_mushrooms
-        + balance.farm_mushrooms_per_min / 60.0 * dt)
-        .min(balance.farm_storage_cap);
+    // Generators: every farm grows, wild patches regrow.
+    for building in session.buildings.iter_mut().filter(|b| b.kind == "farm") {
+        building.stock = (building.stock + balance.farm_mushrooms_per_min / 60.0 * dt)
+            .min(balance.farm_storage_cap);
+    }
     for regrow in session.patch_regrow.values_mut() {
         *regrow = (*regrow - dt).max(0.0);
     }
@@ -51,7 +52,7 @@ pub fn tick(session: &mut GameSession, data: &GameData) -> TickReport {
 
     let mut won_this_tick = false;
     if !session.won
-        && session.economy.ore_delivered >= balance.win_ore_delivered
+        && session.economy.ore_delivered_total >= balance.win_ore_delivered
         && session.economy.food >= balance.win_food_surplus
     {
         session.won = true;
@@ -69,15 +70,40 @@ pub fn sim_seconds(session: &GameSession) -> f32 {
     session.tick as f32 * SIM_DT
 }
 
-/// Spend ore to attract a beetle hauler (the Phase 1 upgrade decision).
-/// Returns false when the stockpile can't afford it.
+/// Spend banked ore to attract a beetle hauler (the Phase 1 upgrade
+/// decision). Returns false when the stockpile can't afford it.
 pub fn try_attract_beetle(session: &mut GameSession, data: &GameData) -> bool {
     let cost = data.balance.beetle_ore_cost;
-    if session.economy.ore_delivered < cost {
+    if session.economy.ore_stock < cost {
         return false;
     }
-    session.economy.ore_delivered -= cost;
+    session.economy.ore_stock -= cost;
     session.spawn_creature("beetle", crate::state::creatures::Job::Carrier);
+    true
+}
+
+/// Place a construction ghost. Returns false when the spot or kind is
+/// invalid; carriers deliver the ore and finish it.
+pub fn try_place_build_site(
+    session: &mut GameSession,
+    data: &GameData,
+    kind: &str,
+    pos: macroquad_toolkit::grid::TilePos,
+) -> bool {
+    let Some(def) = data.buildings.get(kind) else {
+        return false;
+    };
+    if !def.buildable || !session.can_place_building(pos) {
+        return false;
+    }
+    session
+        .build_sites
+        .push(crate::state::structures::BuildSite {
+            kind: kind.to_owned(),
+            pos,
+            ore_needed: def.cost_ore,
+            ore_delivered: 0,
+        });
     true
 }
 
@@ -141,7 +167,7 @@ mod tests {
             tick(&mut a, &data);
             tick(&mut b, &data);
         }
-        assert_eq!(a.economy.ore_delivered, b.economy.ore_delivered);
+        assert_eq!(a.economy.ore_delivered_total, b.economy.ore_delivered_total);
         assert!((a.economy.food - b.economy.food).abs() < 1e-3);
         assert_eq!(a.creatures.len(), b.creatures.len());
         for (ca, cb) in a.creatures.iter().zip(&b.creatures) {
@@ -206,7 +232,7 @@ mod tests {
         let minutes = won_at / 60.0;
         eprintln!(
             "[balance probe] won at {minutes:.1} sim-min with {} ore and {:.0} food",
-            session.economy.ore_delivered, session.economy.food
+            session.economy.ore_delivered_total, session.economy.food
         );
         assert!(
             minutes <= 35.0,
@@ -214,19 +240,123 @@ mod tests {
         );
     }
 
-    /// Buying the beetle trades ore for hauling capacity.
+    /// Buying the beetle trades banked ore for hauling capacity.
     #[test]
     fn beetle_purchase_spends_ore_and_spawns_hauler() {
         let (data, mut session) = boot(3);
-        session.economy.ore_delivered = data.balance.beetle_ore_cost + 5;
+        session.economy.ore_stock = data.balance.beetle_ore_cost + 5;
 
         let before = session.creatures.len();
         assert!(try_attract_beetle(&mut session, &data));
         assert_eq!(session.creatures.len(), before + 1);
-        assert_eq!(session.economy.ore_delivered, 5);
+        assert_eq!(session.economy.ore_stock, 5);
         assert!(session.creatures.iter().any(|c| c.species == "beetle"));
 
         // Too poor now.
         assert!(!try_attract_beetle(&mut session, &data));
+    }
+
+    /// Designated rock gets carved into floor by miners.
+    #[test]
+    fn dig_designations_get_carved_by_miners() {
+        let (data, mut session) = boot_on_config_seed();
+
+        // Mark a rock tile adjacent to reachable floor near spawn.
+        let spawn = session.spawn_tile();
+        let mark = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .filter(|(pos, t)| {
+                **t == crate::state::world::Tile::Rock
+                    && pos
+                        .neighbors_4way()
+                        .iter()
+                        .any(|n| session.world.tiles.get(*n).is_some_and(|t| t.walkable()))
+            })
+            .map(|(pos, _)| pos)
+            .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y))
+            .unwrap();
+        assert!(session.toggle_dig_mark(mark));
+
+        run_until(
+            &mut session,
+            &data,
+            3.0,
+            |_, _| {},
+            |s| s.dig_marks.is_empty(),
+        );
+
+        assert!(session.dig_marks.is_empty(), "mark should be dug");
+        assert!(session.world.tiles.get(mark).unwrap().walkable());
+    }
+
+    /// A placed ghost gets its ore hauled by carriers and becomes a
+    /// working building (a second farm that then grows mushrooms).
+    #[test]
+    fn build_site_completes_from_hauled_ore() {
+        let (data, mut session) = boot_on_config_seed();
+        session.economy.ore_stock = 40;
+        session.economy.food = 200.0; // keep everyone fed for the test
+
+        let spawn = session.spawn_tile();
+        let spot = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .filter(|(pos, t)| {
+                **t == crate::state::world::Tile::Floor
+                    && session.can_place_building(*pos)
+                    && pos.manhattan_distance(&spawn) >= 2
+            })
+            .map(|(pos, _)| pos)
+            .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y))
+            .unwrap();
+        assert!(try_place_build_site(&mut session, &data, "farm", spot));
+        assert!(!try_place_build_site(&mut session, &data, "farm", spot));
+
+        run_until(
+            &mut session,
+            &data,
+            6.0,
+            |_, _| {},
+            |s| s.build_sites.is_empty(),
+        );
+
+        assert!(session.build_sites.is_empty(), "site should complete");
+        let new_farm = session.building_at(spot).expect("farm built");
+        assert_eq!(new_farm.kind, "farm");
+        assert_eq!(session.buildings_of("farm").count(), 2);
+    }
+
+    /// Full-session serde roundtrip: a loaded save simulates identically
+    /// to the original.
+    #[test]
+    fn save_roundtrip_preserves_simulation() {
+        let (data, mut original) = boot_on_config_seed();
+        // Make the state interesting first.
+        for _ in 0..1200 {
+            tick(&mut original, &data);
+        }
+
+        let json = serde_json::to_string(&original).expect("serialize");
+        let mut restored: GameSession = serde_json::from_str(&json).expect("deserialize");
+
+        for _ in 0..1200 {
+            tick(&mut original, &data);
+            tick(&mut restored, &data);
+        }
+
+        assert_eq!(
+            original.economy.ore_delivered_total,
+            restored.economy.ore_delivered_total
+        );
+        assert!((original.economy.food - restored.economy.food).abs() < 1e-3);
+        assert_eq!(original.creatures.len(), restored.creatures.len());
+        for (a, b) in original.creatures.iter().zip(&restored.creatures) {
+            assert_eq!(a.task, b.task);
+            assert!((a.x - b.x).abs() < 1e-4);
+            assert!((a.y - b.y).abs() < 1e-4);
+        }
     }
 }

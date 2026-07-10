@@ -1,31 +1,49 @@
 //! Screen-space HUD: the calorie balance meter (the game's "power UI"),
-//! job assignment panel, and victory overlay. Pure view — returns intents.
+//! job assignment panel, build tools, and victory overlay. Pure view —
+//! returns intents and whether the pointer is over HUD chrome.
 
 use crate::data::GameData;
 use crate::simulation::{self, food};
 use crate::state::creatures::Job;
 use crate::state::GameSession;
-use crate::ui::{UiAction, LOGICAL_HEIGHT, LOGICAL_WIDTH};
+use crate::ui::{HudFrame, UiAction, UiMode, LOGICAL_HEIGHT, LOGICAL_WIDTH};
 use macroquad::prelude::*;
 use macroquad_toolkit::prelude::*;
 use macroquad_toolkit::ui::draw_ui_text_ex;
 
-pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi) -> Vec<UiAction> {
+const PANEL_W: f32 = 252.0;
+
+pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi, mode: &UiMode) -> HudFrame {
     let mut actions = Vec::new();
     let mouse = ui.mouse_position();
 
-    draw_top_bar(session, mouse, &mut actions);
-    draw_food_grid_panel(session, data);
-    draw_jobs_panel(session, data, mouse, &mut actions);
-    if session.won && !session.victory_shown {
+    let top_bar = Rect::new(12.0, 12.0, LOGICAL_WIDTH - 24.0, 48.0);
+    let food_panel = Rect::new(12.0, 72.0, PANEL_W, 208.0);
+    let jobs_panel = Rect::new(12.0, 290.0, PANEL_W, 224.0);
+    let tools_panel = Rect::new(12.0, 524.0, PANEL_W, 184.0);
+
+    draw_top_bar(session, top_bar, mouse, &mut actions);
+    draw_food_grid_panel(session, data, food_panel);
+    draw_jobs_panel(session, data, jobs_panel, mouse, &mut actions);
+    draw_tools_panel(session, data, tools_panel, mode, mouse, &mut actions);
+
+    let victory_up = session.won && !session.victory_shown;
+    if victory_up {
         draw_victory_overlay(session, mouse, &mut actions);
     }
 
-    actions
+    let pointer_over_ui = victory_up
+        || [top_bar, food_panel, jobs_panel, tools_panel]
+            .iter()
+            .any(|r| r.contains_point(mouse));
+
+    HudFrame {
+        actions,
+        pointer_over_ui,
+    }
 }
 
-fn draw_top_bar(session: &GameSession, mouse: Vec2, actions: &mut Vec<UiAction>) {
-    let bar = Rect::new(12.0, 12.0, LOGICAL_WIDTH - 24.0, 48.0);
+fn draw_top_bar(session: &GameSession, bar: Rect, mouse: Vec2, actions: &mut Vec<UiAction>) {
     draw_surface(
         bar,
         &SurfaceStyle::new(Color::new(0.07, 0.08, 0.10, 0.94))
@@ -56,7 +74,7 @@ fn draw_top_bar(session: &GameSession, mouse: Vec2, actions: &mut Vec<UiAction>)
         );
     } else {
         draw_ui_text_ex(
-            "Right-drag / WASD pan · wheel zoom · Esc menu",
+            "Right-drag / WASD pan · wheel zoom · Esc cancel/menu",
             bar.x + 380.0,
             bar.y + 31.0,
             TextStyle::new(15.0, dark::TEXT_DIM).params(),
@@ -75,8 +93,7 @@ fn draw_top_bar(session: &GameSession, mouse: Vec2, actions: &mut Vec<UiAction>)
 
 /// The calorie balance meter — production, consumption, stockpile, and
 /// time-to-empty, exactly like a power graph.
-fn draw_food_grid_panel(session: &GameSession, data: &GameData) {
-    let panel = Rect::new(12.0, 72.0, 252.0, 214.0);
+fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
     draw_surface_with_title(
         panel,
         Some("Food Grid"),
@@ -133,24 +150,22 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData) {
     );
     y += 36.0;
 
-    match food::time_to_empty_sec(session.economy.food, production, consumption) {
-        Some(secs) if session.economy.food > 0.0 => {
+    if let Some(secs) = food::time_to_empty_sec(session.economy.food, production, consumption) {
+        if session.economy.food > 0.0 {
             draw_ui_text_ex(
-                &format!("Empty in {:.0}s", secs),
+                &format!("Empty in {secs:.0}s"),
                 x,
                 y,
                 TextStyle::new(15.0, dark::WARNING).params(),
             );
         }
-        _ => {}
     }
     y += 22.0;
 
+    let farm_stock: f32 = session.buildings_of("farm").map(|b| b.stock).sum();
+    let pot_stock: f32 = session.buildings_of("cook_pot").map(|b| b.stock).sum();
     draw_ui_text_ex(
-        &format!(
-            "Farm {:.0} shrooms · Pot {}",
-            session.economy.farm_mushrooms, session.economy.pot_mushrooms
-        ),
+        &format!("Farms {farm_stock:.0} shrooms · Pots {pot_stock:.0}"),
         x,
         y,
         TextStyle::new(14.0, dark::TEXT_DIM).params(),
@@ -158,8 +173,10 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData) {
     y += 22.0;
     draw_ui_text_ex(
         &format!(
-            "Ore delivered {}/{}",
-            session.economy.ore_delivered, data.balance.win_ore_delivered
+            "Ore banked {} · delivered {}/{}",
+            session.economy.ore_stock,
+            session.economy.ore_delivered_total,
+            data.balance.win_ore_delivered
         ),
         x,
         y,
@@ -170,10 +187,10 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData) {
 fn draw_jobs_panel(
     session: &GameSession,
     data: &GameData,
+    panel: Rect,
     mouse: Vec2,
     actions: &mut Vec<UiAction>,
 ) {
-    let panel = Rect::new(12.0, 296.0, 252.0, 236.0);
     draw_surface_with_title(
         panel,
         Some("Jobs"),
@@ -183,7 +200,7 @@ fn draw_jobs_panel(
 
     let idle = session.job_count(Job::Idle);
     let x = panel.x + 14.0;
-    let mut y = panel.y + 50.0;
+    let mut y = panel.y + 48.0;
 
     for job in [Job::Miner, Job::Carrier, Job::Cook] {
         let count = session.job_count(job);
@@ -199,7 +216,7 @@ fn draw_jobs_panel(
         if hud_button(Rect::new(x + 172.0, y, 34.0, 28.0), "+", idle > 0, mouse) {
             actions.push(UiAction::Assign(job));
         }
-        y += 38.0;
+        y += 36.0;
     }
 
     draw_ui_text_ex(
@@ -208,7 +225,7 @@ fn draw_jobs_panel(
         y + 20.0,
         TextStyle::new(17.0, dark::TEXT_DIM).params(),
     );
-    y += 42.0;
+    y += 40.0;
 
     let beetles = session
         .creatures
@@ -216,14 +233,88 @@ fn draw_jobs_panel(
         .filter(|c| c.species == "beetle")
         .count();
     let cost = data.balance.beetle_ore_cost;
-    let affordable = session.economy.ore_delivered >= cost;
     if hud_button(
         Rect::new(x, y, panel.w - 28.0, 34.0),
         &format!("Attract Beetle ({cost} ore) · have {beetles}"),
-        affordable,
+        session.economy.ore_stock >= cost,
         mouse,
     ) {
         actions.push(UiAction::AttractBeetle);
+    }
+}
+
+fn draw_tools_panel(
+    session: &GameSession,
+    data: &GameData,
+    panel: Rect,
+    mode: &UiMode,
+    mouse: Vec2,
+    actions: &mut Vec<UiAction>,
+) {
+    draw_surface_with_title(
+        panel,
+        Some("Build & Dig"),
+        &panel_style(),
+        TextStyle::new(17.0, dark::TEXT),
+    );
+
+    let x = panel.x + 14.0;
+    let mut y = panel.y + 44.0;
+    let w = panel.w - 28.0;
+
+    let mut defs: Vec<_> = data.buildings.iter().filter(|(_, d)| d.buildable).collect();
+    defs.sort_by(|a, b| a.0.cmp(b.0));
+    for (id, def) in defs {
+        let active = *mode == UiMode::Build(id.clone());
+        let label = format!(
+            "{}{} ({} ore)",
+            if active { "▶ " } else { "" },
+            def.name,
+            def.cost_ore
+        );
+        if hud_button(Rect::new(x, y, w, 30.0), &label, true, mouse) {
+            actions.push(UiAction::SetMode(UiMode::Build(id.clone())));
+        }
+        y += 36.0;
+    }
+
+    let dig_active = *mode == UiMode::Dig;
+    let dig_label = if dig_active {
+        "▶ Dig (toggle marks)"
+    } else {
+        "Dig (toggle marks)"
+    };
+    if hud_button(Rect::new(x, y, w, 30.0), dig_label, true, mouse) {
+        actions.push(UiAction::SetMode(UiMode::Dig));
+    }
+    y += 40.0;
+
+    let half = (w - 8.0) / 2.0;
+    if hud_button(Rect::new(x, y, half, 30.0), "Save (F5)", true, mouse) {
+        actions.push(UiAction::Save);
+    }
+    if hud_button(
+        Rect::new(x + half + 8.0, y, half, 30.0),
+        "Load (F9)",
+        true,
+        mouse,
+    ) {
+        actions.push(UiAction::Load);
+    }
+
+    // Show pending construction so hauling progress is visible.
+    if !session.build_sites.is_empty() {
+        let pending: u32 = session.build_sites.iter().map(|s| s.remaining()).sum();
+        draw_ui_text_ex(
+            &format!(
+                "{} site(s) awaiting {} ore",
+                session.build_sites.len(),
+                pending
+            ),
+            x,
+            y + 52.0,
+            TextStyle::new(14.0, dark::TEXT_DIM).params(),
+        );
     }
 }
 
@@ -247,7 +338,7 @@ fn draw_victory_overlay(session: &GameSession, mouse: Vec2, actions: &mut Vec<Ui
     draw_text_block(
         &format!(
             "The warren thrives: a 100-food surplus and {} ore delivered in {:.0} minutes.\n\nThe hunger grid held. Keep playing, or return to the menu.",
-            session.economy.ore_delivered, minutes
+            session.economy.ore_delivered_total, minutes
         ),
         panel.x + 20.0,
         panel.y + 60.0,

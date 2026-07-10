@@ -11,6 +11,7 @@
   "patch_regrow_sec": 90.0,
   "vein_ore_yield": 6,
   "mine_time_sec": 8.0,
+  "dig_time_sec": 5.0,
   "haul_pickup_sec": 4.0,
   "cook_batch_mushrooms": 2,
   "cook_batch_food": 3.0,

@@ -1,23 +1,26 @@
-//! Top-level game: owns the state machine, camera, and fixed-timestep
-//! accumulator, and dispatches `UiAction` intents from the view layer.
+//! Top-level game: owns the state machine, camera, tool mode, and
+//! fixed-timestep accumulator, and dispatches `UiAction` intents.
 
 use crate::data::GameData;
 use crate::simulation::{self, MAX_TICKS_PER_FRAME, SIM_DT};
 use crate::state::creatures::Job;
 use crate::state::{GameSession, GameState, StateTransition};
-use crate::ui::{self, UiAction};
+use crate::ui::{self, UiAction, UiMode};
 use macroquad::prelude::*;
 use macroquad_toolkit::camera::{Camera2D, Camera2DConfig, CameraBounds};
 use macroquad_toolkit::events::EventBus;
+use macroquad_toolkit::grid::TilePos;
 use macroquad_toolkit::notifications::{
     NotificationAnchor, NotificationManager, NotificationRenderConfig,
 };
+use macroquad_toolkit::persistence::{load_from_slot_with_migration, save_to_slot_with_version};
 use macroquad_toolkit::prelude::{begin_virtual_ui_frame, dark, end_virtual_ui_frame, InputState};
 
 pub struct Game {
     data: GameData,
     state: GameState,
     camera: Camera2D,
+    mode: UiMode,
     events: EventBus<UiAction>,
     notifications: NotificationManager,
     /// Real time not yet consumed by fixed-step sim ticks.
@@ -38,6 +41,7 @@ impl Game {
             data,
             state: GameState::Menu,
             camera,
+            mode: UiMode::Inspect,
             events: EventBus::new(),
             notifications: NotificationManager::new(),
             accumulator: 0.0,
@@ -49,9 +53,58 @@ impl Game {
     pub fn begin_capture_scene(&mut self, scene: &str) {
         match scene {
             "menu" => self.transition(StateTransition::BackToMenu),
-            // "warren" (and the harness default "gameplay") boot straight
-            // into a fresh session on the config seed, so captures are
-            // deterministic.
+            "factory" => {
+                self.transition(StateTransition::StartWarren);
+                if let GameState::Warren(session) = &mut self.state {
+                    // Stage a mid-build factory: banked ore, ghosts, digs.
+                    session.economy.ore_stock = 24;
+                    session.economy.food = 60.0;
+                    let spawn = session.spawn_tile();
+                    let mut spots: Vec<TilePos> = session
+                        .world
+                        .tiles
+                        .iter_with_pos()
+                        .filter(|(pos, _)| session.can_place_building(*pos))
+                        .map(|(pos, _)| pos)
+                        .collect();
+                    spots.sort_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y));
+                    for (kind, spot) in ["farm", "cook_pot"].iter().zip(spots.iter().skip(2)) {
+                        simulation::try_place_build_site(session, &self.data, kind, *spot);
+                    }
+                    for mark in session
+                        .world
+                        .tiles
+                        .iter_with_pos()
+                        .filter(|(_, t)| **t == crate::state::world::Tile::Rock)
+                        .map(|(pos, _)| pos)
+                        .filter(|p| p.manhattan_distance(&spawn) <= 6)
+                        .take(4)
+                        .collect::<Vec<_>>()
+                    {
+                        session.toggle_dig_mark(mark);
+                    }
+                    for _ in 0..900 {
+                        simulation::tick(session, &self.data);
+                    }
+                }
+            }
+            "famine" => {
+                self.transition(StateTransition::StartWarren);
+                if let GameState::Warren(session) = &mut self.state {
+                    for _ in 0..600 {
+                        simulation::tick(session, &self.data);
+                    }
+                    session.economy.food = 0.0;
+                    for creature in &mut session.creatures {
+                        creature.satiation = 0.3;
+                    }
+                    for _ in 0..100 {
+                        simulation::tick(session, &self.data);
+                    }
+                }
+            }
+            // "warren" and the harness default "gameplay" boot straight
+            // into a fresh session on the config seed.
             _ => self.transition(StateTransition::StartWarren),
         }
     }
@@ -91,8 +144,20 @@ impl Game {
             }
 
             self.camera.update(dt, false);
+            // F-keys avoid colliding with WASD camera pan.
+            if is_key_pressed(KeyCode::F5) {
+                self.events.push(UiAction::Save);
+            }
+            if is_key_pressed(KeyCode::F9) {
+                self.events.push(UiAction::Load);
+            }
             if input.escape_pressed {
-                self.events.push(UiAction::BackToMenu);
+                // Escape backs out of a tool first, then to the menu.
+                if self.mode != UiMode::Inspect {
+                    self.mode = UiMode::Inspect;
+                } else {
+                    self.events.push(UiAction::BackToMenu);
+                }
             }
         }
 
@@ -113,13 +178,25 @@ impl Game {
                 actions
             }
             GameState::Warren(session) => {
+                let hover = self.hover_tile(session);
+
                 self.camera.begin();
-                ui::warren::draw_world(session, self.data.config.tile_size);
+                ui::warren::draw_world(session, self.data.config.tile_size, &self.mode, hover);
                 set_default_camera();
 
                 let virtual_ui = begin_virtual_ui_frame(ui::LOGICAL_WIDTH, ui::LOGICAL_HEIGHT);
-                let actions = ui::hud::draw(session, &self.data, &virtual_ui);
+                let frame = ui::hud::draw(session, &self.data, &virtual_ui, &self.mode);
                 end_virtual_ui_frame();
+
+                let mut actions = frame.actions;
+                if !frame.pointer_over_ui
+                    && self.mode != UiMode::Inspect
+                    && is_mouse_button_released(MouseButton::Left)
+                {
+                    if let Some(tile) = hover {
+                        actions.push(UiAction::WorldClick(tile));
+                    }
+                }
                 actions
             }
         };
@@ -135,6 +212,14 @@ impl Game {
             });
     }
 
+    /// World tile under the mouse cursor, if inside the map.
+    fn hover_tile(&self, session: &GameSession) -> Option<TilePos> {
+        let world = self.camera.screen_to_world(mouse_position().into());
+        let ts = self.data.config.tile_size;
+        let tile = TilePos::new((world.x / ts).floor() as i32, (world.y / ts).floor() as i32);
+        session.world.tiles.is_valid(tile).then_some(tile)
+    }
+
     fn apply_action(&mut self, action: UiAction) {
         match action {
             UiAction::StartWarren => self.transition(StateTransition::StartWarren),
@@ -147,7 +232,7 @@ impl Game {
                         self.notifications
                             .success("A beetle hauler joins the warren.");
                     } else {
-                        self.notifications.warning("Not enough ore delivered.");
+                        self.notifications.warning("Not enough ore banked.");
                     }
                 }
             }
@@ -156,6 +241,84 @@ impl Game {
                     session.victory_shown = true;
                 }
             }
+            UiAction::SetMode(mode) => {
+                self.mode = if self.mode == mode {
+                    UiMode::Inspect
+                } else {
+                    mode
+                };
+            }
+            UiAction::WorldClick(tile) => self.world_click(tile),
+            UiAction::Save => self.save_game(),
+            UiAction::Load => self.load_game(),
+        }
+    }
+
+    fn world_click(&mut self, tile: TilePos) {
+        let mode = self.mode.clone();
+        let GameState::Warren(session) = &mut self.state else {
+            return;
+        };
+        match mode {
+            UiMode::Build(kind) => {
+                if simulation::try_place_build_site(session, &self.data, &kind, tile) {
+                    let cost = self
+                        .data
+                        .buildings
+                        .get(&kind)
+                        .map(|d| d.cost_ore)
+                        .unwrap_or(0);
+                    self.notifications
+                        .info(format!("Site placed — carriers will deliver {cost} ore."));
+                } else {
+                    self.notifications.warning("Can't build there.");
+                }
+            }
+            UiMode::Dig => {
+                session.toggle_dig_mark(tile);
+            }
+            UiMode::Inspect => {}
+        }
+    }
+
+    fn save_game(&mut self) {
+        let GameState::Warren(session) = &self.state else {
+            return;
+        };
+        let config = &self.data.config;
+        match save_to_slot_with_version(
+            &config.game_name,
+            &config.save_slot,
+            session.as_ref(),
+            &config.version,
+        ) {
+            Ok(()) => self.notifications.success("Warren saved."),
+            Err(err) => self.notifications.danger(format!("Save failed: {err}")),
+        }
+    }
+
+    fn load_game(&mut self) {
+        let config = &self.data.config;
+        let loaded: Result<GameSession, String> = load_from_slot_with_migration(
+            &config.game_name,
+            &config.save_slot,
+            &config.version,
+            |version, value| {
+                let payload = value.get("data").cloned().unwrap_or(value);
+                serde_json::from_value(payload)
+                    .map_err(|err| format!("Unsupported save {version:?}: {err}"))
+            },
+        );
+
+        match loaded {
+            Ok(session) => {
+                self.reset_camera_for(&session);
+                self.accumulator = 0.0;
+                self.mode = UiMode::Inspect;
+                self.state = GameState::Warren(Box::new(session));
+                self.notifications.success("Warren loaded.");
+            }
+            Err(err) => self.notifications.warning(format!("Load failed: {err}")),
         }
     }
 
@@ -176,9 +339,11 @@ impl Game {
                 self.reset_camera_for(&session);
                 self.accumulator = 0.0;
                 self.famine_announced = false;
+                self.mode = UiMode::Inspect;
                 self.state = GameState::Warren(Box::new(session));
             }
             StateTransition::BackToMenu => {
+                self.mode = UiMode::Inspect;
                 self.state = GameState::Menu;
             }
         }

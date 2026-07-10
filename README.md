@@ -21,8 +21,14 @@ Design and phase plan: see [`biofoundry_plan.md`](biofoundry_plan.md).
   time-to-empty, job reassignment, beetle hauler upgrade, and the win
   condition (100-food surplus + 50 ore). On the default seed the first
   famine hits ~5.5 sim-minutes in and a reactive player wins ~13.6 minutes.
-- **Phase 2 (next)**: player-placed buildings, dig designations, real
-  stockpile logistics, Tier 1 species with diet chains, save/load.
+- **Phase 2a (done)**: player-placed buildings (ghost → carriers haul ore →
+  built), dig designations carved by miners, multi-building logistics
+  (several farms/pots, per-building stock), banked-ore economy, full-sim
+  save/load (F5/F9, toolkit persistence), capture scenes `factory` and
+  `famine`.
+- **Phase 2b (next)**: Tier 1 species with distinct diets (salamander
+  smelter + charcoal chain, slime janitor, bat courier), food variety and
+  spoilage, feeding troughs.
 
 ## Run
 
@@ -40,7 +46,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 ## Screenshots (headless capture)
 
 ```powershell
-./scripts/capture_ui.ps1 -Scenes menu,warren
+./scripts/capture_ui.ps1 -Scenes menu,warren,factory,famine
 ```
 
 Writes PNGs to `docs/verification/`. Uses the `BIOFOUNDRY_CAPTURE_*` env-var

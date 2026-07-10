@@ -6,6 +6,8 @@
 //! by `simulation` services and dispatched `UiAction`s.
 
 pub mod creatures;
+pub mod serde_helpers;
+pub mod structures;
 pub mod world;
 
 use crate::data::{Balance, GameData};
@@ -13,7 +15,8 @@ use creatures::{Creature, Job};
 use macroquad_toolkit::grid::TilePos;
 use macroquad_toolkit::rng::SeededRng;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use structures::{BuildSite, Building};
 use world::{Tile, WorldMap};
 
 /// Which screen is running. Session data is owned by the active state.
@@ -29,29 +32,15 @@ pub enum StateTransition {
     BackToMenu,
 }
 
-/// Fixed structures in the warren (pre-placed in Phase 1; player-built in
-/// Phase 2).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Buildings {
-    /// Mushroom Farm: grows mushrooms continuously (the "generator").
-    pub farm: TilePos,
-    /// Cook Pot: mushrooms are cooked into food here (the "power plant").
-    pub cook_pot: TilePos,
-    /// Stockpile: miners deliver ore here.
-    pub stockpile: TilePos,
-}
-
 /// Global resource counters (the "battery" side of the food grid).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Economy {
     /// Cooked food stockpile — the electricity of the warren.
     pub food: f32,
-    /// Mushrooms grown and waiting at the farm.
-    pub farm_mushrooms: f32,
-    /// Mushrooms delivered to the cook pot, awaiting cooking.
-    pub pot_mushrooms: u32,
-    /// Total ore delivered to the stockpile (win condition counter).
-    pub ore_delivered: u32,
+    /// Ore sitting at the stockpile, spendable on construction/upgrades.
+    pub ore_stock: u32,
+    /// Lifetime ore delivered (win condition counter; never spent).
+    pub ore_delivered_total: u32,
     /// Creatures lost to starvation desertion (blackout consequence).
     pub deserted: u32,
     /// Smoothed food production rate (per minute) for the calorie meter —
@@ -66,13 +55,18 @@ pub struct GameSession {
     pub rng: SeededRng,
     /// Completed fixed-timestep simulation ticks.
     pub tick: u64,
-    pub buildings: Buildings,
+    pub buildings: Vec<Building>,
+    pub build_sites: Vec<BuildSite>,
+    /// Rock tiles the player marked for digging.
+    pub dig_marks: HashSet<TilePos>,
     pub economy: Economy,
     pub creatures: Vec<Creature>,
     pub next_creature_id: u32,
     /// Wild mushroom patches: seconds until regrown (0 = harvestable).
+    #[serde(with = "serde_helpers::tile_key_map")]
     pub patch_regrow: HashMap<TilePos, f32>,
     /// Ore remaining per vein tile; mined-out veins open into floor.
+    #[serde(with = "serde_helpers::tile_key_map")]
     pub vein_ore: HashMap<TilePos, u32>,
     pub won: bool,
     pub victory_shown: bool,
@@ -85,7 +79,7 @@ impl GameSession {
         let mut rng = SeededRng::new(seed);
         let world = WorldMap::generate(config.world_width, config.world_height, &mut rng);
 
-        let buildings = place_buildings(&world, balance.farm_min_distance);
+        let buildings = starting_buildings(&world, balance.farm_min_distance);
         let patch_regrow = world
             .tiles
             .iter_with_pos()
@@ -104,11 +98,12 @@ impl GameSession {
             rng,
             tick: 0,
             buildings,
+            build_sites: Vec::new(),
+            dig_marks: HashSet::new(),
             economy: Economy {
                 food: balance.start_food,
-                farm_mushrooms: 0.0,
-                pot_mushrooms: 0,
-                ore_delivered: 0,
+                ore_stock: 0,
+                ore_delivered_total: 0,
                 deserted: 0,
                 production_ema_per_min: 0.0,
             },
@@ -137,7 +132,59 @@ impl GameSession {
         let id = self.next_creature_id;
         self.next_creature_id += 1;
         self.creatures
-            .push(Creature::new(id, species, job, self.world.spawn));
+            .push(Creature::new(id, species, job, self.spawn_tile()));
+    }
+
+    pub fn spawn_tile(&self) -> TilePos {
+        self.world.spawn
+    }
+
+    /// The (single) stockpile position — ore deliveries land here.
+    pub fn stockpile_pos(&self) -> TilePos {
+        self.buildings
+            .iter()
+            .find(|b| b.kind == "stockpile")
+            .map(|b| b.pos)
+            .unwrap_or(self.world.spawn)
+    }
+
+    pub fn buildings_of<'a>(&'a self, kind: &'a str) -> impl Iterator<Item = &'a Building> + 'a {
+        self.buildings.iter().filter(move |b| b.kind == kind)
+    }
+
+    pub fn building_at(&self, pos: TilePos) -> Option<&Building> {
+        self.buildings.iter().find(|b| b.pos == pos)
+    }
+
+    pub fn building_at_mut(&mut self, pos: TilePos) -> Option<&mut Building> {
+        self.buildings.iter_mut().find(|b| b.pos == pos)
+    }
+
+    pub fn site_at(&self, pos: TilePos) -> Option<&BuildSite> {
+        self.build_sites.iter().find(|s| s.pos == pos)
+    }
+
+    /// Whether a ghost can go here: open walkable floor, nothing else on it.
+    pub fn can_place_building(&self, pos: TilePos) -> bool {
+        self.world.tiles.get(pos).is_some_and(|t| *t == Tile::Floor)
+            && self.building_at(pos).is_none()
+            && self.site_at(pos).is_none()
+    }
+
+    /// Toggle a dig designation on rock (plain or ore vein).
+    pub fn toggle_dig_mark(&mut self, pos: TilePos) -> bool {
+        let diggable = self
+            .world
+            .tiles
+            .get(pos)
+            .is_some_and(|t| matches!(t, Tile::Rock | Tile::OreVein));
+        if !diggable {
+            return false;
+        }
+        if !self.dig_marks.remove(&pos) {
+            self.dig_marks.insert(pos);
+        }
+        true
     }
 
     pub fn job_count(&self, job: Job) -> usize {
@@ -177,10 +224,10 @@ impl GameSession {
     }
 }
 
-/// Pre-place the farm, cook pot, and stockpile on reachable open floor.
-/// The pot sits next to spawn; the farm sits a real haul away (that walk is
-/// what makes carrier throughput a meaningful number).
-fn place_buildings(world: &WorldMap, farm_min_distance: i32) -> Buildings {
+/// Pre-place the starting farm, cook pot, and stockpile on reachable open
+/// floor. The pot sits next to spawn; the farm sits a real haul away (that
+/// walk is what makes carrier throughput a meaningful number).
+fn starting_buildings(world: &WorldMap, farm_min_distance: i32) -> Vec<Building> {
     let spawn = world.spawn;
     let reachable = world
         .tiles
@@ -202,11 +249,11 @@ fn place_buildings(world: &WorldMap, farm_min_distance: i32) -> Buildings {
         .or_else(|| floors_by_distance.last().copied())
         .unwrap_or(spawn);
 
-    Buildings {
-        farm,
-        cook_pot,
-        stockpile: spawn,
-    }
+    vec![
+        Building::new("stockpile", spawn),
+        Building::new("cook_pot", cook_pot),
+        Building::new("farm", farm),
+    ]
 }
 
 #[cfg(test)]
@@ -231,18 +278,54 @@ mod tests {
     }
 
     #[test]
-    fn buildings_land_on_walkable_floor() {
+    fn starting_buildings_land_on_walkable_floor() {
         let data = GameData::load().unwrap();
         let session = GameSession::new(&data, data.config.world_seed);
-        let b = &session.buildings;
 
-        for pos in [b.farm, b.cook_pot, b.stockpile] {
+        assert_eq!(session.buildings.len(), 3);
+        for building in &session.buildings {
             assert!(
-                session.world.tiles.get(pos).unwrap().walkable(),
-                "building at {pos:?} must be walkable"
+                session.world.tiles.get(building.pos).unwrap().walkable(),
+                "building {} at {:?} must be walkable",
+                building.kind,
+                building.pos
             );
+            assert!(data.buildings.get(&building.kind).is_some());
         }
-        assert_ne!(b.farm, b.cook_pot);
+    }
+
+    #[test]
+    fn placement_rules_reject_occupied_and_rock_tiles() {
+        let data = GameData::load().unwrap();
+        let mut session = GameSession::new(&data, 5);
+
+        let farm_pos = session.buildings_of("farm").next().unwrap().pos;
+        assert!(!session.can_place_building(farm_pos), "occupied by farm");
+
+        let rock = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .find(|(_, t)| **t == Tile::Rock)
+            .map(|(pos, _)| pos)
+            .unwrap();
+        assert!(!session.can_place_building(rock), "rock is not floor");
+
+        let open = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .find(|(pos, t)| **t == Tile::Floor && session.building_at(*pos).is_none())
+            .map(|(pos, _)| pos)
+            .unwrap();
+        assert!(session.can_place_building(open));
+
+        // Dig marks toggle on rock only.
+        assert!(session.toggle_dig_mark(rock));
+        assert!(session.dig_marks.contains(&rock));
+        assert!(session.toggle_dig_mark(rock));
+        assert!(!session.dig_marks.contains(&rock));
+        assert!(!session.toggle_dig_mark(open));
     }
 
     #[test]
