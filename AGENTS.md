@@ -14,6 +14,7 @@ These instructions apply to all Rust game projects in this workspace.
 - Avoid broad refactors while making focused changes. Match the style, naming, and structure already present in each project.
 - Use clear error handling for asset loading, save/load, publishing, and platform integration.
 - Do not introduce new dependencies unless they remove real complexity or match an established project pattern.
+- Keep a root-level `catalog_thumbnail.png` for the WebHatchery games catalog. It should be a title-screen capture when available; `publish.ps1` deploys it as `<game_slug>/catalog_thumbnail.png`.
 
 ## Macroquad Conventions
 

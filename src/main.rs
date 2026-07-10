@@ -1,10 +1,12 @@
-//! Macroquad game template wired to macroquad-toolkit.
+//! Biofoundry — a factory/colony hybrid where every piece of automation is
+//! a living creature and food is the power grid.
 
 use macroquad::prelude::*;
 use macroquad_toolkit::capture;
 
 mod data;
 mod game;
+mod simulation;
 mod state;
 mod ui;
 
@@ -12,8 +14,8 @@ use game::Game;
 
 fn window_conf() -> Conf {
     capture::capture_window_conf(
-        "GAME_TEMPLATE",
-        "Game Template",
+        "BIOFOUNDRY",
+        "Biofoundry",
         ui::LOGICAL_WIDTH as i32,
         ui::LOGICAL_HEIGHT as i32,
     )
@@ -23,11 +25,11 @@ fn window_conf() -> Conf {
 async fn main() {
     let mut game = Game::new().await;
 
-    // Screenshot harness: when GAME_TEMPLATE_CAPTURE_PATH is set, render
-    // deterministic frames, write a PNG, and exit. This is a minimal starter
-    // template with a single boot state, so the capture just photographs
-    // whatever the boot flow lands on.
-    if let Some(config) = capture::CaptureConfig::from_env("GAME_TEMPLATE") {
+    // Screenshot harness: when BIOFOUNDRY_CAPTURE_PATH is set, seed the named
+    // scene ("menu" or "warren"), render deterministic frames, write a PNG,
+    // and exit. Stubbed out on wasm32.
+    if let Some(config) = capture::CaptureConfig::from_env("BIOFOUNDRY") {
+        game.begin_capture_scene(&config.scene);
         capture::run_capture(&config, |dt| {
             game.update(dt);
             game.draw();

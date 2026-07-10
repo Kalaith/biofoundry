@@ -1,45 +1,56 @@
-# Macroquad Toolkit Game Template
+# Biofoundry
 
-This is a working starter crate for new Rust + Macroquad games in this workspace.
-It intentionally uses `macroquad-toolkit` heavily so new projects begin with the
-same shared patterns as the existing games.
+> "An ant colony crossed with a factory builder, where every conveyor belt
+> is a creature with needs."
 
-## Toolkit Features Already Wired
+A top-down 2D factory/colony hybrid where **every piece of automation is a
+living creature** and **food is the power grid**: farms are generators,
+cookhouses are power plants, stockpiles are batteries, famine is a brownout,
+and starvation is a blackout.
 
-- `AssetManager` with a texture manifest at `assets/data/texture_manifest.json`
-- `DataRegistry` and embedded JSON loading for data-driven actions
-- `save_to_slot_with_version`, `load_from_slot_with_migration`, `delete_slot`, and `get_save_slots`
-- `NotificationManager` with toolkit toast rendering
-- `VirtualUi`, `SurfaceStyle`, `TextStyle`, `GridLayout`, meters, badges, tooltips, and text fitting
-- `FlatGrid`, `FogState`, `TilePos`, line-of-sight visibility, and flood-fill reachability
-- `Camera2D` with bounds, right-mouse drag, keyboard pan, and zoom limits
-- `EventBus<UiAction>` so UI returns intents and game logic applies them
-- Rust 2018 module layout using `data.rs`, `state.rs`, and `ui.rs` parent
-  files instead of `mod.rs`
+Design and phase plan: see [`biofoundry_plan.md`](biofoundry_plan.md).
 
-The template avoids browser-incompatible filesystem access. Static data is
-embedded with `include_str!()`, runtime browser assets go through Macroquad or
-toolkit async loaders, and save data uses macroquad-toolkit persistence.
-Shared UI math, such as grid layout and mouse selection, is kept in helper
-types so rendering and input do not duplicate coordinate calculations.
+## Status
+
+- **Phase 0 (done)**: package skeleton, tile-map warren generation
+  (deterministic seeded RNG), toolkit camera pan/zoom, fixed-timestep
+  simulation tick, menu/warren state machine, capture scenes.
+- **Phase 1 (next)**: the 10-minute prototype — goblins, jobs, the hunger
+  grid, calorie balance HUD, beetle hauler upgrade, win condition.
 
 ## Run
 
 ```powershell
-cargo run --manifest-path template/Cargo.toml
+cargo run
 ```
 
-## Test
+## Test / lint
 
 ```powershell
-cargo test --manifest-path template/Cargo.toml
+cargo test
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-## Rename For A New Game
+## Screenshots (headless capture)
 
-1. Copy `template/` to your new game folder.
-2. Rename the package in `Cargo.toml`.
-3. Update `assets/data/game_config.json`.
-4. Replace `actions.json` with your game data.
-5. Add textures to `assets/data/texture_manifest.json`.
-6. Update `index.html` to load the new wasm filename.
+```powershell
+./scripts/capture_ui.ps1 -Scenes menu,warren
+```
+
+Writes PNGs to `docs/verification/`. Uses the `BIOFOUNDRY_CAPTURE_*` env-var
+hook from `macroquad_toolkit::capture`.
+
+## Publish
+
+```powershell
+./publish.ps1          # Windows + WebGL build and deploy
+./publish.ps1 -DryRun
+```
+
+## Module layout
+
+- `data/` — serde types for config/species/buildings/balance, embedded JSON
+  from `assets/data/` (edit the JSON, not Rust constants).
+- `simulation/` — stateless fixed-timestep tick services.
+- `state/` — `GameState` machine, live `GameSession`, world map.
+- `ui/` — pure view layer; reads state, returns `UiAction` intents.

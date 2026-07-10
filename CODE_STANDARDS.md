@@ -297,6 +297,9 @@ The `index.html` must:
 - Include canvas with `id="glcanvas"`
 - Use `image-rendering: pixelated` for pixel art
 
+### 8.5 Catalog Thumbnail
+Each published game should keep `catalog_thumbnail.png` in the project root. Use a 16:9 title-screen or main-menu capture. The shared publisher deploys the file as `<game_slug>/catalog_thumbnail.png`, and the WebHatchery games catalog uses that stable path for card thumbnails.
+
 ## 9. Comments & Documentation
 
 ### 9.1 Comment Why, Not What

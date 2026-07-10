@@ -323,6 +323,7 @@ Use database crates only for native/server code. Keep WebGL clients on JSON data
 Every game MUST have:
 - `publish.ps1` – Build and deploy script
 - `index.html` – WebGL host page
+- `catalog_thumbnail.png` – Root-level catalog thumbnail, preferably a title-screen capture. The publisher deploys this as `<game_slug>/catalog_thumbnail.png`.
 
 ### Validation
 
@@ -365,6 +366,22 @@ cargo build --release --target wasm32-unknown-unknown
     <script>load("my_game.wasm");</script>
 </body>
 </html>
+```
+
+### Catalog Thumbnail
+
+Use `catalog_thumbnail.png` in the project root for the WebHatchery games catalog card. The file should be a 16:9 PNG from the game's title or main menu screen. If a title screen has not been captured yet, the catalog falls back to a simple title banner until the file exists.
+
+The root publisher looks for this exact filename and deploys it to:
+
+```text
+<game_slug>/catalog_thumbnail.png
+```
+
+To refresh title captures from preview builds and copy them into project roots:
+
+```powershell
+.\capture-title-screenshots.ps1 -Publish
 ```
 
 ---

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Game Template | Web Hatchery Games</title>
+    <title>Biofoundry | Web Hatchery Games</title>
     <link rel="stylesheet" href="../shared.css">
     <style>
         .game-container canvas {
@@ -17,7 +17,7 @@
 <body>
     <div class="game-page">
         <header class="game-header">
-            <h1>Game Template</h1>
+            <h1>Biofoundry</h1>
             <a href="../" class="back-link">Back to All Games</a>
         </header>
 
@@ -44,19 +44,19 @@
                 <section class="info-section">
                     <h2>About This Game</h2>
                     <p>
-                        A starter Rust + Macroquad game wired to macroquad-toolkit for UI,
-                        save/load, data loading, notifications, grid helpers, and camera controls.
+                        A factory/colony hybrid where every piece of automation is a living
+                        creature and food is the power grid. Dig a warren, feed your goblins,
+                        and keep the calorie balance out of the red.
                     </p>
                 </section>
 
                 <section class="info-section" style="margin-top: 1rem;">
                     <h2>Controls</h2>
                     <ul class="controls-list">
-                        <li><kbd>Arrow Keys</kbd><span>Move selected tile</span></li>
                         <li><kbd>Right Mouse</kbd><span>Drag camera</span></li>
-                        <li><kbd>+ / -</kbd><span>Zoom camera</span></li>
-                        <li><kbd>Space</kbd><span>Run first data action</span></li>
-                        <li><kbd>S / L</kbd><span>Save / load toolkit slot</span></li>
+                        <li><kbd>WASD / Arrows</kbd><span>Pan camera</span></li>
+                        <li><kbd>Mouse Wheel</kbd><span>Zoom camera</span></li>
+                        <li><kbd>Esc</kbd><span>Back to menu</span></li>
                     </ul>
                 </section>
             </div>
@@ -70,7 +70,7 @@
                 <div class="sidebar-section">
                     <h3>Details</h3>
                     <ul class="meta-list">
-                        <li><span class="label">Genre</span><span class="value">Template</span></li>
+                        <li><span class="label">Genre</span><span class="value">Factory / Colony Sim</span></li>
                         <li><span class="label">Engine</span><span class="value">Macroquad + Toolkit</span></li>
                         <li><span class="label">Platform</span><span class="value">Browser, Windows</span></li>
                     </ul>
@@ -88,8 +88,7 @@
     <script>
         document.getElementById('loading').style.display = 'none';
         
-        // Rename this when you rename the Cargo package.
-        load("game_template.wasm");
+        load("biofoundry.wasm");
 
         function toggleFullscreen() {
             const container = document.getElementById('game-container');
