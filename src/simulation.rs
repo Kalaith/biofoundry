@@ -7,6 +7,8 @@
 
 pub mod food;
 pub mod jobs;
+pub mod nav;
+pub mod wildlife;
 
 use crate::data::GameData;
 use crate::state::creatures::Creature;
@@ -24,6 +26,7 @@ pub struct TickReport {
     pub deserters: Vec<Creature>,
     pub won_this_tick: bool,
     pub factory_this_tick: bool,
+    pub wild: wildlife::WildReport,
 }
 
 /// Advance the simulation by one fixed step.
@@ -34,12 +37,13 @@ pub fn tick(session: &mut GameSession, data: &GameData) -> TickReport {
 
     // Generators: farms grow, kilns smoulder, wild flora regrows.
     use crate::state::creatures::Good;
+    let farm_cap = wildlife::farm_cap(session, data);
     for building in session.buildings.iter_mut() {
         match building.kind.as_str() {
             "farm" => {
                 let grown = (building.stock(Good::Mushroom)
                     + balance.farm_mushrooms_per_min / 60.0 * dt)
-                    .min(balance.farm_storage_cap);
+                    .min(farm_cap);
                 building.stocks.insert(Good::Mushroom, grown);
             }
             "kiln" => {
@@ -64,10 +68,11 @@ pub fn tick(session: &mut GameSession, data: &GameData) -> TickReport {
     // food (cook batches), so the delta is this tick's production.
     let food_before = session.economy.food;
     jobs::tick_creatures(session, data, dt);
-    let produced_per_min = (session.economy.food - food_before) / dt * 60.0;
+    let produced_per_min = ((session.economy.food - food_before) / dt * 60.0).max(0.0);
     let smoothing = dt / 15.0; // ~15s time constant
     session.economy.production_ema_per_min +=
         (produced_per_min - session.economy.production_ema_per_min) * smoothing;
+    let wild = wildlife::tick_wildlife(session, data, dt);
     let deserters = food::tick_hunger(session, data, dt);
 
     let mut won_this_tick = false;
@@ -89,6 +94,7 @@ pub fn tick(session: &mut GameSession, data: &GameData) -> TickReport {
         deserters,
         won_this_tick,
         factory_this_tick,
+        wild,
     }
 }
 
@@ -105,7 +111,7 @@ pub fn try_attract_beetle(session: &mut GameSession, data: &GameData) -> bool {
         return false;
     }
     session.economy.ore_stock -= cost;
-    session.spawn_creature("beetle", crate::state::creatures::Job::Carrier);
+    session.spawn_creature(data, "beetle", crate::state::creatures::Job::Carrier);
     true
 }
 
@@ -117,7 +123,7 @@ pub fn try_attract_salamander(session: &mut GameSession, data: &GameData) -> boo
         return false;
     }
     session.economy.ore_stock -= cost;
-    session.spawn_creature("salamander", crate::state::creatures::Job::Smelter);
+    session.spawn_creature(data, "salamander", crate::state::creatures::Job::Smelter);
     true
 }
 
@@ -132,7 +138,7 @@ pub fn try_place_build_site(
     let Some(def) = data.buildings.get(kind) else {
         return false;
     };
-    if !def.buildable || !session.can_place_building(pos) {
+    if !def.buildable || !session.building_unlocked(def) || !session.can_place_building(pos) {
         return false;
     }
     session
@@ -402,7 +408,7 @@ mod tests {
             .building_at_mut(den_pos)
             .unwrap()
             .add_stock(Good::Ore, 6.0);
-        session.spawn_creature("salamander", Job::Smelter);
+        session.spawn_creature(&data, "salamander", Job::Smelter);
 
         run_until(
             &mut session,
@@ -428,10 +434,11 @@ mod tests {
     fn sim_to_factory_complete_on_fixed_seed() {
         let (data, mut session) = boot_on_config_seed();
         let mut reacted = false;
-        let mut rebalanced = false;
+        let mut farm2 = false;
         let mut placed = false;
         let mut attracted = false;
 
+        let mut guarded = 0;
         let done_at = run_until(
             &mut session,
             &data,
@@ -458,10 +465,30 @@ mod tests {
                     let _ = reassign(s, &data, Job::Miner, Job::Carrier);
                     reacted = true;
                 }
-                // Food stabilized: send one carrier back to the mines.
-                if reacted && !rebalanced && s.economy.food > 60.0 {
-                    let _ = reassign(s, &data, Job::Carrier, Job::Miner);
-                    rebalanced = true;
+                // Post a guard shortly before the first raid lands. The
+                // remaining 1 miner + 2 carriers + cook + guard is the
+                // steady-state warren.
+                if guarded == 0
+                    && t > data.balance.raid_first_sec - 60.0
+                    && (reassign(s, &data, Job::Carrier, Job::Guard)
+                        || reassign(s, &data, Job::Miner, Job::Guard))
+                {
+                    guarded = 1;
+                }
+                // A second farm near the warren shortens haul trips — the
+                // "build more generators" move once ore allows it.
+                if !farm2 && guarded == 1 && s.economy.ore_stock >= 12 {
+                    let spawn = s.spawn_tile();
+                    let spot = s
+                        .world
+                        .tiles
+                        .iter_with_pos()
+                        .filter(|(pos, _)| s.can_place_building(*pos))
+                        .map(|(pos, _)| pos)
+                        .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y));
+                    if let Some(spot) = spot {
+                        farm2 = try_place_build_site(s, &data, "farm", spot);
+                    }
                 }
                 // After the first win, invest in the smelting chain.
                 if s.won && !placed && s.economy.ore_stock >= 27 {
@@ -504,6 +531,153 @@ mod tests {
             (20.0..=60.0).contains(&minutes),
             "full run took {minutes:.1} min; want a ~30-minute sitting"
         );
+    }
+
+    /// Capture → study → adapt: snared wild beetles advance the counter,
+    /// unlock the breeding pit, and the pit hatches new haulers.
+    #[test]
+    fn traps_capture_and_breeding_pit_hatches() {
+        use crate::state::structures::Building;
+        use crate::state::wildlife::{WildBehavior, WildCreature};
+        let (data, mut session) = boot_on_config_seed();
+        session.economy.food = 400.0;
+
+        // Two traps near spawn, and wild beetles sitting on them (each
+        // trap is single-use).
+        let spawn = session.spawn_tile();
+        let mut spots: Vec<_> = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .filter(|(pos, _)| session.can_place_building(*pos))
+            .map(|(pos, _)| pos)
+            .collect();
+        spots.sort_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y));
+        for (i, spot) in spots.iter().take(2).enumerate() {
+            session.buildings.push(Building::new("trap", *spot));
+            session.wilds.push(WildCreature::new(
+                900 + i as u32,
+                "wild_beetle",
+                *spot,
+                30.0,
+                WildBehavior::Wander { next_move_in: 5.0 },
+            ));
+        }
+
+        run_until(
+            &mut session,
+            &data,
+            1.0,
+            |_, _| {},
+            |s| s.progress.beetles_captured >= 2,
+        );
+
+        assert_eq!(session.progress.beetles_captured, 2);
+        assert!(
+            session.buildings_of("trap").next().is_none(),
+            "traps are single-use"
+        );
+        assert!(
+            session.unlocked.contains("breeding_pit"),
+            "capturing 2 beetles should unlock the breeding pit"
+        );
+
+        // Breeding: pit + 2 specimens hatch a beetle when the timer laps.
+        let pit_spot = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .filter(|(pos, _)| session.can_place_building(*pos))
+            .map(|(pos, _)| pos)
+            .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y))
+            .unwrap();
+        session
+            .buildings
+            .push(Building::new("breeding_pit", pit_spot));
+        let beetles_before = session
+            .creatures
+            .iter()
+            .filter(|c| c.species == "beetle")
+            .count();
+        session.breed_in = 1.0;
+        run_until(
+            &mut session,
+            &data,
+            1.0,
+            |_, _| {},
+            |s| s.creatures.iter().filter(|c| c.species == "beetle").count() > beetles_before,
+        );
+        assert!(
+            session
+                .creatures
+                .iter()
+                .filter(|c| c.species == "beetle")
+                .count()
+                > beetles_before
+        );
+    }
+
+    /// Guards kill a staged raid; surviving it unlocks hardened guards.
+    /// Without guards, raiders eat the stockpile instead.
+    #[test]
+    fn guards_repel_raids_and_undefended_raids_drain_food() {
+        // Defended warren.
+        let (data, mut session) = boot_on_config_seed();
+        session.economy.food = 300.0;
+        for _ in 0..2 {
+            assert!(reassign(&mut session, &data, Job::Miner, Job::Guard));
+        }
+        session.raid_in = 1.0;
+        run_until(
+            &mut session,
+            &data,
+            8.0,
+            |_, _| {},
+            |s| s.progress.raids_survived >= 1,
+        );
+        assert_eq!(session.progress.raids_survived, 1);
+        assert!(session.unlocked.contains("hardened_guards"));
+        assert!(!session.raid_active);
+
+        // Undefended warren: raiders feast, then leave on their own.
+        let (data2, mut open_house) = boot_on_config_seed();
+        open_house.economy.food = 300.0;
+        open_house.raid_in = 1.0;
+        let food_before_raid = open_house.economy.food;
+        run_until(
+            &mut open_house,
+            &data2,
+            10.0,
+            |_, _| {},
+            |s| s.progress.raids_survived >= 1,
+        );
+        assert!(
+            open_house.economy.food
+                < food_before_raid - data2.balance.raider_flee_after_eaten * 0.9,
+            "an undefended raid should eat a meaningful chunk of the larder"
+        );
+    }
+
+    /// Surviving a famine grants Preservation Techniques (bigger farms).
+    #[test]
+    fn famine_survival_unlocks_preservation() {
+        let (data, mut session) = boot_on_config_seed();
+        session.economy.food = 0.0;
+        assert!((wildlife::farm_cap(&session, &data) - data.balance.farm_storage_cap).abs() < 1e-4);
+
+        run_until(&mut session, &data, 1.0, |_, _| {}, |s| s.famine_active);
+        session.economy.food = data.balance.famine_recover_food + 5.0;
+        run_until(
+            &mut session,
+            &data,
+            0.5,
+            |_, _| {},
+            |s| s.progress.famines_survived >= 1,
+        );
+
+        assert_eq!(session.progress.famines_survived, 1);
+        assert!(session.unlocked.contains("preservation"));
+        assert!(wildlife::farm_cap(&session, &data) > data.balance.farm_storage_cap);
     }
 
     /// Full-session serde roundtrip: a loaded save simulates identically

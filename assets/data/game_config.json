@@ -2,7 +2,7 @@
   "game_name": "biofoundry",
   "display_name": "Biofoundry",
   "save_slot": "autosave",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "world_width": 48,
   "world_height": 32,
   "world_seed": 20260710,

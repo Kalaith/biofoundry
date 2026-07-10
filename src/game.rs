@@ -103,6 +103,55 @@ impl Game {
                     }
                 }
             }
+            "raid" => {
+                self.transition(StateTransition::StartWarren);
+                if let GameState::Warren(session) = &mut self.state {
+                    // Stage an active raid with guards responding.
+                    session.economy.food = 60.0;
+                    let species = &self.data.species;
+                    for _ in 0..2 {
+                        session.reassign(Job::Miner, Job::Guard, |s| {
+                            species.get(s).map(|d| d.reassignable).unwrap_or(false)
+                        });
+                    }
+                    for _ in 0..300 {
+                        simulation::tick(session, &self.data);
+                    }
+                    session.raid_in = 0.0;
+                    for _ in 0..80 {
+                        simulation::tick(session, &self.data);
+                    }
+                }
+            }
+            "breeding" => {
+                self.transition(StateTransition::StartWarren);
+                if let GameState::Warren(session) = &mut self.state {
+                    // Stage the capture→study→adapt chain mid-flow.
+                    let spawn = session.spawn_tile();
+                    let mut spots: Vec<TilePos> = session
+                        .world
+                        .tiles
+                        .iter_with_pos()
+                        .filter(|(pos, _)| session.can_place_building(*pos))
+                        .map(|(pos, _)| pos)
+                        .collect();
+                    spots.sort_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y));
+                    for (kind, spot) in ["trap", "study_pen", "breeding_pit"]
+                        .iter()
+                        .zip(spots.iter().skip(1))
+                    {
+                        session
+                            .buildings
+                            .push(crate::state::structures::Building::new(kind, *spot));
+                    }
+                    session.progress.beetles_captured = 2;
+                    session.progress.specimens = 2;
+                    session.wild_spawn_in = 0.0;
+                    for _ in 0..200 {
+                        simulation::tick(session, &self.data);
+                    }
+                }
+            }
             // "warren" and the harness default "gameplay" boot straight
             // into a fresh session on the config seed.
             _ => self.transition(StateTransition::StartWarren),
@@ -130,6 +179,28 @@ impl Game {
                 if report.factory_this_tick {
                     self.notifications
                         .success("The Biofoundry roars — factory complete!");
+                }
+                if report.wild.raid_started {
+                    self.notifications
+                        .danger("Raid! Gnarls are coming for the larder.");
+                }
+                if report.wild.raid_survived {
+                    self.notifications.success("The raid is over — we held.");
+                }
+                for _ in 0..report.wild.captured {
+                    self.notifications
+                        .success("A wild beetle was snared — specimen housed.");
+                }
+                for _ in 0..report.wild.guards_killed {
+                    self.notifications
+                        .danger("A guard fell defending the warren.");
+                }
+                for name in &report.wild.unlocked {
+                    self.notifications.success(format!("Unlocked: {name}"));
+                }
+                if report.wild.bred_beetle {
+                    self.notifications
+                        .info("The breeding pit hatched a new beetle hauler.");
                 }
                 self.accumulator -= SIM_DT;
                 ticks += 1;

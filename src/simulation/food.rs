@@ -45,11 +45,13 @@ pub fn tick_hunger(session: &mut GameSession, data: &GameData, dt: f32) -> Vec<C
 
     let b = &data.balance;
     for creature in &mut session.creatures {
-        let eats_food = data
-            .species
-            .get(&creature.species)
-            .map(|s| s.diet == "food")
-            .unwrap_or(true);
+        let species = data.species.get(&creature.species);
+        let eats_food = species.map(|s| s.diet == "food").unwrap_or(true);
+        // Fed creatures knit wounds between fights.
+        if creature.satiation > 0.66 {
+            let max_hp = species.map(|s| s.max_hp).unwrap_or(20.0);
+            creature.hp = (creature.hp + b.hp_regen_per_sec * dt).min(max_hp);
+        }
         if eats_food {
             if fed {
                 creature.satiation = (creature.satiation + dt / b.satiation_recover_sec).min(1.0);

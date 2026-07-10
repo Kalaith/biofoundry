@@ -33,9 +33,17 @@ Design and phase plan: see [`biofoundry_plan.md`](biofoundry_plan.md).
   reserve, industry otherwise. Extended goal: forge 20 metal ("Factory
   Complete"). Full-run probe on the fixed seed: famine ~5.5 min → first
   victory ~14 min → **factory complete ~34 sim-minutes** — a full sitting.
-- **Phase 3 (next)**: capture/study/adapt progression, wild creatures,
-  raids and defense (plus slime janitor / bat courier / spoilage from the
-  Phase 2 backlog).
+- **Phase 3 (done)**: the living world bites back. Wild beetles wander in
+  (snare traps capture them — single-use), study pens generate knowledge,
+  and `unlocks.json` drives progression through event counters: capture 2
+  beetles → Breeding Pit (hatches free haulers), survive a raid →
+  Hardened Guards, survive a famine → Preservation (bigger farms). Gnarl
+  raiders periodically attack the larder and eat the stockpile; the Guard
+  job fights them off (fed creatures regenerate; starving guards lose —
+  the desertion spiral is real). Full-run probe with defense in the mix:
+  factory complete ~25 sim-minutes plus endless raid pressure after.
+- **Phase 4 (next)**: tier-2 monster / Colossal Worm victory monument,
+  morale-lite, endless framing.
 
 ## Run
 
@@ -53,7 +61,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 ## Screenshots (headless capture)
 
 ```powershell
-./scripts/capture_ui.ps1 -Scenes menu,warren,factory,famine
+./scripts/capture_ui.ps1   # menu, warren, factory, famine, raid, breeding
 ```
 
 Writes PNGs to `docs/verification/`. Uses the `BIOFOUNDRY_CAPTURE_*` env-var

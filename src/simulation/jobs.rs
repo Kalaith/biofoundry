@@ -6,6 +6,7 @@
 //! new target is chosen — the performance guardrail from the plan.
 
 use crate::data::{GameData, SpeciesDef};
+use crate::simulation::{nav, wildlife};
 use crate::state::creatures::{Creature, Good, Job, Task};
 use crate::state::structures::Building;
 use crate::state::world::Tile;
@@ -41,32 +42,21 @@ fn tick_creature(creature: &mut Creature, session: &mut GameSession, data: &Game
         Job::Miner => tick_miner(creature, session, data, dt),
         Job::Carrier => tick_carrier(creature, session, data, &species, dt),
         Job::Cook => tick_cook(creature, session, data, dt),
+        Job::Guard => tick_guard(creature, session, data, dt),
         Job::Smelter => tick_smelter(creature, session, data, dt),
     }
 }
 
 /// Advance along the path at species speed scaled by the brownout curve.
 fn walk(creature: &mut Creature, species: &SpeciesDef, dt: f32) {
-    let mut budget = species.move_tiles_per_sec * creature.work_speed() * dt;
-    while budget > 0.0 {
-        let Some(&next) = creature.path.first() else {
-            return;
-        };
-        let target = (next.x as f32 + 0.5, next.y as f32 + 0.5);
-        let dx = target.0 - creature.x;
-        let dy = target.1 - creature.y;
-        let dist = (dx * dx + dy * dy).sqrt();
-        if dist <= budget {
-            creature.x = target.0;
-            creature.y = target.1;
-            creature.path.remove(0);
-            budget -= dist;
-        } else {
-            creature.x += dx / dist * budget;
-            creature.y += dy / dist * budget;
-            return;
-        }
-    }
+    let speed = species.move_tiles_per_sec * creature.work_speed();
+    nav::walk(
+        &mut creature.x,
+        &mut creature.y,
+        &mut creature.path,
+        speed,
+        dt,
+    );
 }
 
 // ---------------------------------------------------------------- miners
@@ -525,6 +515,69 @@ fn tick_cook(creature: &mut Creature, session: &mut GameSession, data: &GameData
     }
 }
 
+// --------------------------------------------------------------- guards
+
+/// Guards chase raiders and fight them; otherwise they stand watch near
+/// the stockpile (the raid target).
+fn tick_guard(creature: &mut Creature, session: &mut GameSession, data: &GameData, dt: f32) {
+    match creature.task.clone() {
+        Task::Idle => {
+            if let Some(target) = nearest_raider(creature, session) {
+                let tile = session
+                    .wilds
+                    .iter()
+                    .find(|w| w.id == target)
+                    .map(|w| w.tile());
+                if let Some(tile) = tile {
+                    if set_path(creature, session, tile) || creature.tile() == tile {
+                        creature.task = Task::Hunt { target };
+                        return;
+                    }
+                }
+            }
+            // Stand watch by the larder.
+            let post = session.stockpile_pos();
+            if creature.tile().manhattan_distance(&post) > 2 {
+                send_to(creature, session, post, Task::Idle);
+            }
+        }
+        Task::Hunt { target } => {
+            let dps = wildlife::guard_dps(session, data) * creature.work_speed();
+            let Some(wild) = session.wilds.iter_mut().find(|w| w.id == target) else {
+                creature.task = Task::Idle;
+                return;
+            };
+            if nav::dist_sq(creature.x, creature.y, wild.x, wild.y) <= 2.0 {
+                wild.hp -= dps * dt;
+                if wild.hp <= 0.0 {
+                    creature.task = Task::Idle;
+                }
+            } else {
+                // Chase: re-path to the raider's current tile.
+                let tile = wild.tile();
+                if !set_path(creature, session, tile) {
+                    creature.task = Task::Idle;
+                }
+            }
+        }
+        _ => creature.task = Task::Idle,
+    }
+}
+
+/// Nearest living raider's wild id.
+fn nearest_raider(creature: &Creature, session: &GameSession) -> Option<u32> {
+    let from = creature.tile();
+    session
+        .wilds
+        .iter()
+        .filter(|w| w.is_raider() && w.hp > 0.0)
+        .min_by_key(|w| {
+            let t = w.tile();
+            (t.manhattan_distance(&from), t.x, t.y)
+        })
+        .map(|w| w.id)
+}
+
 // ------------------------------------------------------------- smelters
 
 /// Salamanders: the living furnace. A batch claims ore + charcoal from
@@ -592,37 +645,16 @@ fn send_to(creature: &mut Creature, session: &GameSession, target: TilePos, task
 
 /// Compute and cache a walkable path. Returns false when unreachable.
 fn set_path(creature: &mut Creature, session: &GameSession, target: TilePos) -> bool {
-    let from = creature.tile();
-    let Some(mut path) = session
-        .world
-        .tiles
-        .bfs_path(from, target, false, |_, t| t.walkable())
-    else {
+    let Some(path) = nav::find_path(session, creature.tile(), target) else {
         return false;
     };
-    if path.first() == Some(&from) {
-        path.remove(0);
-    }
     creature.path = path;
     true
 }
 
 /// Nearest walkable stand tile adjacent to `target` rock, with a path.
 fn reachable_stand(creature: &Creature, session: &GameSession, target: TilePos) -> Option<TilePos> {
-    let from = creature.tile();
-    let mut stands: Vec<TilePos> = target
-        .neighbors_4way()
-        .into_iter()
-        .filter(|n| session.world.tiles.get(*n).is_some_and(|t| t.walkable()))
-        .collect();
-    stands.sort_by_key(|p| (p.manhattan_distance(&from), p.x, p.y));
-    stands.into_iter().find(|stand| {
-        session
-            .world
-            .tiles
-            .bfs_path(from, *stand, false, |_, t| t.walkable())
-            .is_some()
-    })
+    nav::reachable_stand(session, creature.tile(), target)
 }
 
 /// Nearest vein with ore left, together with a reachable stand tile.

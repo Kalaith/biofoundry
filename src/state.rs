@@ -8,6 +8,7 @@
 pub mod creatures;
 pub mod serde_helpers;
 pub mod structures;
+pub mod wildlife;
 pub mod world;
 
 use crate::data::{Balance, GameData};
@@ -45,6 +46,8 @@ pub struct Economy {
     pub metal: u32,
     /// Creatures lost to starvation desertion (blackout consequence).
     pub deserted: u32,
+    /// Workers killed defending the warren.
+    pub killed: u32,
     /// Smoothed food production rate (per minute) for the calorie meter —
     /// cooking lands in bursts, so the HUD shows a moving average.
     pub production_ema_per_min: f32,
@@ -78,6 +81,20 @@ pub struct GameSession {
     /// Extended goal: the smelting chain forged `win2_metal` metal.
     pub factory_complete: bool,
     pub factory_shown: bool,
+    /// Fauna the player didn't hire (wild beetles, raiders).
+    pub wilds: Vec<wildlife::WildCreature>,
+    pub next_wild_id: u32,
+    /// Progression counters + granted unlock ids (`unlocks.json`).
+    pub progress: wildlife::Progress,
+    pub unlocked: HashSet<String>,
+    /// Wildlife/raid/breeding timers (seconds remaining).
+    pub wild_spawn_in: f32,
+    pub raid_in: f32,
+    pub raids_launched: u32,
+    pub raid_active: bool,
+    pub breed_in: f32,
+    /// Blackout episode tracker for the famines_survived counter.
+    pub famine_active: bool,
 }
 
 impl GameSession {
@@ -120,6 +137,7 @@ impl GameSession {
                 ore_delivered_total: 0,
                 metal: 0,
                 deserted: 0,
+                killed: 0,
                 production_ema_per_min: 0.0,
             },
             creatures: Vec::new(),
@@ -131,26 +149,37 @@ impl GameSession {
             victory_shown: false,
             factory_complete: false,
             factory_shown: false,
+            wilds: Vec::new(),
+            next_wild_id: 1,
+            progress: wildlife::Progress::default(),
+            unlocked: HashSet::new(),
+            wild_spawn_in: balance.wild_beetle_spawn_sec,
+            raid_in: balance.raid_first_sec,
+            raids_launched: 0,
+            raid_active: false,
+            breed_in: balance.breed_interval_sec,
+            famine_active: false,
         };
 
         for _ in 0..balance.start_miners {
-            session.spawn_creature("goblin", Job::Miner);
+            session.spawn_creature(data, "goblin", Job::Miner);
         }
         for _ in 0..balance.start_carriers {
-            session.spawn_creature("goblin", Job::Carrier);
+            session.spawn_creature(data, "goblin", Job::Carrier);
         }
         for _ in 0..balance.start_cooks {
-            session.spawn_creature("goblin", Job::Cook);
+            session.spawn_creature(data, "goblin", Job::Cook);
         }
 
         session
     }
 
-    pub fn spawn_creature(&mut self, species: &str, job: Job) {
+    pub fn spawn_creature(&mut self, data: &GameData, species: &str, job: Job) {
         let id = self.next_creature_id;
         self.next_creature_id += 1;
-        self.creatures
-            .push(Creature::new(id, species, job, self.spawn_tile()));
+        let mut creature = Creature::new(id, species, job, self.spawn_tile());
+        creature.hp = data.species.get(species).map(|s| s.max_hp).unwrap_or(10.0);
+        self.creatures.push(creature);
     }
 
     pub fn spawn_tile(&self) -> TilePos {
@@ -232,13 +261,22 @@ impl GameSession {
     }
 
     /// Per-minute upkeep draw for one creature (idle draws reduced rate,
-    /// cooks draw more — the plan's tier-0 table).
+    /// cooks and guards draw more — the plan's tier-0 table).
     pub fn upkeep_per_min(creature: &Creature, base: f32, balance: &Balance) -> f32 {
         match creature.job {
             Job::Idle => base * balance.idle_upkeep_factor,
             Job::Cook => base * balance.cook_upkeep_factor,
+            Job::Guard => base * balance.guard_upkeep_factor,
             _ => base,
         }
+    }
+
+    /// Whether this building kind may currently be placed (unlock gates).
+    pub fn building_unlocked(&self, def: &crate::data::BuildingDef) -> bool {
+        def.requires_unlock
+            .as_ref()
+            .map(|id| self.unlocked.contains(id))
+            .unwrap_or(true)
     }
 }
 
@@ -368,7 +406,7 @@ mod tests {
         let mut session = GameSession::new(&data, 5);
         // Make everyone a beetle-only pool for the source job.
         session.creatures.clear();
-        session.spawn_creature("beetle", Job::Carrier);
+        session.spawn_creature(&data, "beetle", Job::Carrier);
 
         let moved = session.reassign(Job::Carrier, Job::Miner, |s| {
             data.species.get(s).map(|d| d.reassignable).unwrap_or(false)

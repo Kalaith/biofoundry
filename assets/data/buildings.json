@@ -3,30 +3,56 @@
     "id": "farm",
     "name": "Mushroom Farm",
     "cost_ore": 10,
-    "buildable": true
+    "buildable": true,
+    "requires_unlock": null
   },
   {
     "id": "cook_pot",
     "name": "Cook Pot",
     "cost_ore": 8,
-    "buildable": true
+    "buildable": true,
+    "requires_unlock": null
   },
   {
     "id": "kiln",
     "name": "Charcoal Kiln",
     "cost_ore": 12,
-    "buildable": true
+    "buildable": true,
+    "requires_unlock": null
   },
   {
     "id": "smelter",
     "name": "Smelter Den",
     "cost_ore": 15,
-    "buildable": true
+    "buildable": true,
+    "requires_unlock": null
+  },
+  {
+    "id": "trap",
+    "name": "Snare Trap",
+    "cost_ore": 6,
+    "buildable": true,
+    "requires_unlock": null
+  },
+  {
+    "id": "study_pen",
+    "name": "Study Pen",
+    "cost_ore": 12,
+    "buildable": true,
+    "requires_unlock": null
+  },
+  {
+    "id": "breeding_pit",
+    "name": "Breeding Pit",
+    "cost_ore": 20,
+    "buildable": true,
+    "requires_unlock": "breeding_pit"
   },
   {
     "id": "stockpile",
     "name": "Stockpile",
     "cost_ore": 0,
-    "buildable": false
+    "buildable": false,
+    "requires_unlock": null
   }
 ]

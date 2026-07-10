@@ -19,8 +19,8 @@ pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi, mode: &UiMod
 
     let top_bar = Rect::new(12.0, 12.0, LOGICAL_WIDTH - 24.0, 48.0);
     let food_panel = Rect::new(12.0, 66.0, PANEL_W, 204.0);
-    let jobs_panel = Rect::new(12.0, 276.0, PANEL_W, 240.0);
-    let tools_panel = Rect::new(12.0, 522.0, PANEL_W, 172.0);
+    let jobs_panel = Rect::new(12.0, 276.0, PANEL_W, 230.0);
+    let tools_panel = Rect::new(12.0, 512.0, PANEL_W, 200.0);
 
     draw_top_bar(session, top_bar, mouse, &mut actions);
     draw_food_grid_panel(session, data, food_panel);
@@ -90,7 +90,14 @@ fn draw_top_bar(session: &GameSession, bar: Rect, mouse: Vec2, actions: &mut Vec
         TextStyle::new(18.0, dark::TEXT).params(),
     );
 
-    if session.economy.food <= 0.0 {
+    if session.raid_active {
+        draw_ui_text_ex(
+            "RAID — gnarls are after the larder!",
+            bar.x + 380.0,
+            bar.y + 31.0,
+            TextStyle::new(18.0, dark::NEGATIVE).params(),
+        );
+    } else if session.economy.food <= 0.0 {
         draw_ui_text_ex(
             "FAMINE — workers are slowing down",
             bar.x + 380.0,
@@ -222,12 +229,15 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
     };
     draw_ui_text_ex(
         &format!(
-            "Metal forged {}/{}",
-            session.economy.metal, data.balance.win2_metal
+            "Metal {}/{} · Captured {} · Raids {}",
+            session.economy.metal,
+            data.balance.win2_metal,
+            session.progress.beetles_captured,
+            session.progress.raids_survived
         ),
         x,
         y,
-        TextStyle::new(15.0, metal_color).params(),
+        TextStyle::new(14.0, metal_color).params(),
     );
 }
 
@@ -249,7 +259,7 @@ fn draw_jobs_panel(
     let x = panel.x + 14.0;
     let mut y = panel.y + 44.0;
 
-    for job in [Job::Miner, Job::Carrier, Job::Cook] {
+    for job in [Job::Miner, Job::Carrier, Job::Cook, Job::Guard] {
         let count = session.job_count(job);
         draw_ui_text_ex(
             &format!("{:<8}{count}", job.label()),
@@ -272,35 +282,35 @@ fn draw_jobs_panel(
         y + 18.0,
         TextStyle::new(16.0, dark::TEXT_DIM).params(),
     );
-    y += 30.0;
+    y += 28.0;
 
     let beetles = session
         .creatures
         .iter()
         .filter(|c| c.species == "beetle")
         .count();
-    let cost = data.balance.beetle_ore_cost;
-    if hud_button(
-        Rect::new(x, y, panel.w - 28.0, 32.0),
-        &format!("Attract Beetle ({cost} ore) · have {beetles}"),
-        session.economy.ore_stock >= cost,
-        mouse,
-    ) {
-        actions.push(UiAction::AttractBeetle);
-    }
-    y += 38.0;
-
     let salamanders = session
         .creatures
         .iter()
         .filter(|c| c.species == "salamander")
         .count();
-    let sala_cost = data.balance.salamander_ore_cost;
+    let half = (panel.w - 36.0) / 2.0;
+    if hud_button(
+        Rect::new(x, y, half, 30.0),
+        &format!("Beetle {} ({})", beetles, data.balance.beetle_ore_cost),
+        session.economy.ore_stock >= data.balance.beetle_ore_cost,
+        mouse,
+    ) {
+        actions.push(UiAction::AttractBeetle);
+    }
     let has_den = session.buildings_of("smelter").next().is_some();
     if hud_button(
-        Rect::new(x, y, panel.w - 28.0, 32.0),
-        &format!("Salamander ({sala_cost} ore) · have {salamanders}"),
-        has_den && session.economy.ore_stock >= sala_cost,
+        Rect::new(x + half + 8.0, y, half, 30.0),
+        &format!(
+            "Salam. {} ({})",
+            salamanders, data.balance.salamander_ore_cost
+        ),
+        has_den && session.economy.ore_stock >= data.balance.salamander_ore_cost,
         mouse,
     ) {
         actions.push(UiAction::AttractSalamander);
@@ -323,33 +333,39 @@ fn draw_tools_panel(
     );
 
     let x = panel.x + 14.0;
-    let mut y = panel.y + 42.0;
+    let mut y = panel.y + 34.0;
     let w = panel.w - 28.0;
     let half = (w - 8.0) / 2.0;
 
-    // Build buttons, two per row: label is the short name + cost.
+    // Build buttons, two per row: label is the short name + cost. Locked
+    // kinds stay visible but disabled (progression is discoverable).
     let mut defs: Vec<_> = data.buildings.iter().filter(|(_, d)| d.buildable).collect();
     defs.sort_by(|a, b| a.0.cmp(b.0));
     for pair in defs.chunks(2) {
         for (i, (id, def)) in pair.iter().enumerate() {
             let active = *mode == UiMode::Build((*id).clone());
+            let unlocked = session.building_unlocked(def);
             let short = def.name.split_whitespace().last().unwrap_or(&def.name);
-            let label = format!(
-                "{}{short} ({})",
-                if active { "▶ " } else { "" },
-                def.cost_ore
-            );
+            let label = if unlocked {
+                format!(
+                    "{}{short} ({})",
+                    if active { "▶ " } else { "" },
+                    def.cost_ore
+                )
+            } else {
+                format!("{short} 🔒")
+            };
             let bx = x + (half + 8.0) * i as f32;
-            if hud_button(Rect::new(bx, y, half, 28.0), &label, true, mouse) {
+            if hud_button(Rect::new(bx, y, half, 24.0), &label, unlocked, mouse) {
                 actions.push(UiAction::SetMode(UiMode::Build((*id).clone())));
             }
         }
-        y += 34.0;
+        y += 28.0;
     }
 
     let dig_active = *mode == UiMode::Dig;
     let dig_label = if dig_active { "▶ Dig" } else { "Dig" };
-    if hud_button(Rect::new(x, y, half, 28.0), dig_label, true, mouse) {
+    if hud_button(Rect::new(x, y, half, 24.0), dig_label, true, mouse) {
         actions.push(UiAction::SetMode(UiMode::Dig));
     }
     // Show pending construction so hauling progress is visible.
@@ -358,17 +374,17 @@ fn draw_tools_panel(
         draw_ui_text_ex(
             &format!("{} site(s) · {} ore", session.build_sites.len(), pending),
             x + half + 8.0,
-            y + 19.0,
+            y + 17.0,
             TextStyle::new(13.0, dark::TEXT_DIM).params(),
         );
     }
-    y += 34.0;
+    y += 28.0;
 
-    if hud_button(Rect::new(x, y, half, 28.0), "Save (F5)", true, mouse) {
+    if hud_button(Rect::new(x, y, half, 24.0), "Save (F5)", true, mouse) {
         actions.push(UiAction::Save);
     }
     if hud_button(
-        Rect::new(x + half + 8.0, y, half, 28.0),
+        Rect::new(x + half + 8.0, y, half, 24.0),
         "Load (F9)",
         true,
         mouse,

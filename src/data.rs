@@ -11,6 +11,7 @@ const GAME_CONFIG_JSON: &str = include_str!("../assets/data/game_config.json");
 const SPECIES_JSON: &str = include_str!("../assets/data/species.json");
 const BALANCE_JSON: &str = include_str!("../assets/data/balance.json");
 const BUILDINGS_JSON: &str = include_str!("../assets/data/buildings.json");
+const UNLOCKS_JSON: &str = include_str!("../assets/data/unlocks.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameConfig {
@@ -36,6 +37,10 @@ pub struct SpeciesDef {
     pub food_per_min: f32,
     pub move_tiles_per_sec: f32,
     pub carry_capacity: u32,
+    pub max_hp: f32,
+    /// Innate damage per second (wild predators; worker jobs use balance
+    /// values like `guard_dps` instead).
+    pub attack_dps: f32,
     /// Whether the player can move this creature between jobs.
     pub reassignable: bool,
 }
@@ -87,6 +92,28 @@ pub struct Balance {
     /// Below this food level carriers drop industry hauling and feed the
     /// kitchen first — the load-shedding rule of the food grid.
     pub carrier_food_reserve: f32,
+    /// Guards eat more, like cooks (tier-0 table).
+    pub guard_upkeep_factor: f32,
+    pub guard_dps: f32,
+    /// Well-fed creatures knit wounds between fights.
+    pub hp_regen_per_sec: f32,
+    pub wild_beetle_spawn_sec: f32,
+    pub wild_beetle_max: usize,
+    /// First raid lands after this long; later raids grow to `raid_size_max`.
+    pub raid_first_sec: f32,
+    pub raid_interval_sec: f32,
+    pub raid_size_max: usize,
+    /// Raiders drain the food stockpile at this rate while feeding.
+    pub raider_food_eat_per_min: f32,
+    /// A raider that has eaten this much slinks away satisfied.
+    pub raider_flee_after_eaten: f32,
+    pub study_knowledge_per_specimen_min: f32,
+    pub breed_interval_sec: f32,
+    /// The breeding pit stops at this many living beetles.
+    pub bred_beetle_cap: u32,
+    /// Food must recover above this after a blackout to count the famine
+    /// as survived.
+    pub famine_recover_food: f32,
     pub win_food_surplus: f32,
     pub win_ore_delivered: u32,
     /// Metal to forge for the extended "Factory Complete" goal.
@@ -101,6 +128,25 @@ pub struct BuildingDef {
     pub cost_ore: u32,
     /// Whether it appears in the player's build menu.
     pub buildable: bool,
+    /// Unlock id (from `unlocks.json`) gating this building, if any.
+    pub requires_unlock: Option<String>,
+}
+
+/// A progression unlock: an event counter the player naturally advances,
+/// and what completing it grants (plan §5 — no abstract tech tree).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnlockDef {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// Which session counter drives this ("beetles_captured",
+    /// "raids_survived", "famines_survived").
+    pub counter: String,
+    pub threshold: u32,
+    /// "unlock_building", "guard_dps_mult", or "farm_cap_mult".
+    pub effect: String,
+    pub value: f32,
+    pub building: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +154,7 @@ pub struct GameData {
     pub config: GameConfig,
     pub species: DataRegistry<SpeciesDef>,
     pub buildings: DataRegistry<BuildingDef>,
+    pub unlocks: Vec<UnlockDef>,
     pub balance: Balance,
 }
 
@@ -116,12 +163,14 @@ impl GameData {
         let config = load_embedded_json_labeled("game_config", GAME_CONFIG_JSON)?;
         let species = DataRegistry::from_embedded_json(SPECIES_JSON, "id")?;
         let buildings = DataRegistry::from_embedded_json(BUILDINGS_JSON, "id")?;
+        let unlocks: Vec<UnlockDef> = load_embedded_json_labeled("unlocks", UNLOCKS_JSON)?;
         let balance = load_embedded_json_labeled("balance", BALANCE_JSON)?;
 
         Ok(Self {
             config,
             species,
             buildings,
+            unlocks,
             balance,
         })
     }

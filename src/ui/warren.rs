@@ -22,7 +22,39 @@ pub fn draw_world(session: &GameSession, tile_size: f32, mode: &UiMode, hover: O
     for creature in &session.creatures {
         draw_creature(creature, tile_size);
     }
+    for wild in &session.wilds {
+        draw_wild(wild, tile_size);
+    }
     draw_tool_ghost(session, tile_size, mode, hover);
+}
+
+fn draw_wild(wild: &crate::state::wildlife::WildCreature, ts: f32) {
+    let x = wild.x * ts;
+    let y = wild.y * ts;
+    match wild.species.as_str() {
+        "gnarl" => {
+            draw_circle(x, y, ts * 0.30, Color::new(0.55, 0.14, 0.12, 1.0));
+            draw_circle_lines(x, y, ts * 0.30, 2.0, Color::new(0.95, 0.35, 0.25, 1.0));
+            // Hungry eyes.
+            draw_circle(
+                x - ts * 0.09,
+                y - ts * 0.06,
+                ts * 0.045,
+                Color::new(1.0, 0.85, 0.3, 1.0),
+            );
+            draw_circle(
+                x + ts * 0.09,
+                y - ts * 0.06,
+                ts * 0.045,
+                Color::new(1.0, 0.85, 0.3, 1.0),
+            );
+        }
+        _ => {
+            // Wild beetle: like a hauler, but ringed white (undomesticated).
+            draw_circle(x, y, ts * 0.28, Color::new(0.45, 0.30, 0.55, 1.0));
+            draw_circle_lines(x, y, ts * 0.28, 2.0, Color::new(0.95, 0.95, 0.95, 0.9));
+        }
+    }
 }
 
 fn draw_tiles(session: &GameSession, ts: f32) {
@@ -193,6 +225,62 @@ fn draw_building(session: &GameSession, building: &Building, ts: f32) {
                 );
             }
         }
+        "trap" => {
+            // Snare jaws: two arcs facing each other.
+            let (cx, cy) = (x + ts * 0.5, y + ts * 0.5);
+            draw_circle_lines(cx, cy, ts * 0.26, 2.0, Color::new(0.75, 0.75, 0.78, 0.95));
+            draw_line(
+                cx - ts * 0.26,
+                cy,
+                cx + ts * 0.26,
+                cy,
+                2.0,
+                Color::new(0.75, 0.75, 0.78, 0.7),
+            );
+        }
+        "study_pen" => {
+            draw_rectangle_lines(
+                x + 3.0,
+                y + 3.0,
+                ts - 6.0,
+                ts - 6.0,
+                2.0,
+                Color::new(0.45, 0.65, 0.85, 0.95),
+            );
+            draw_circle(
+                x + ts * 0.5,
+                y + ts * 0.5,
+                ts * 0.12,
+                Color::new(0.45, 0.65, 0.85, 0.7),
+            );
+        }
+        "breeding_pit" => {
+            draw_circle(
+                x + ts * 0.5,
+                y + ts * 0.5,
+                ts * 0.34,
+                Color::new(0.35, 0.20, 0.28, 1.0),
+            );
+            draw_circle_lines(
+                x + ts * 0.5,
+                y + ts * 0.5,
+                ts * 0.34,
+                2.0,
+                Color::new(0.85, 0.45, 0.65, 0.95),
+            );
+            draw_circle(
+                x + ts * 0.40,
+                y + ts * 0.52,
+                ts * 0.08,
+                Color::new(0.62, 0.40, 0.75, 1.0),
+            );
+            draw_circle(
+                x + ts * 0.60,
+                y + ts * 0.48,
+                ts * 0.08,
+                Color::new(0.62, 0.40, 0.75, 1.0),
+            );
+        }
         "stockpile" => {
             draw_rectangle_lines(
                 x + 3.0,
@@ -315,6 +403,7 @@ fn creature_color(creature: &Creature) -> Color {
             Job::Miner => Color::new(0.45, 0.62, 0.85, 1.0),
             Job::Carrier => Color::new(0.85, 0.75, 0.38, 1.0),
             Job::Cook => Color::new(0.88, 0.52, 0.28, 1.0),
+            Job::Guard => Color::new(0.72, 0.30, 0.30, 1.0),
             Job::Smelter => Color::new(0.92, 0.35, 0.18, 1.0),
             Job::Idle => Color::new(0.55, 0.55, 0.58, 1.0),
         },

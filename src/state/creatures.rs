@@ -8,6 +8,8 @@ pub enum Job {
     Miner,
     Carrier,
     Cook,
+    /// Fights off raiders; stands watch at the stockpile otherwise.
+    Guard,
     /// Salamanders only: the living furnace at a smelter den.
     Smelter,
     Idle,
@@ -19,6 +21,7 @@ impl Job {
             Job::Miner => "Miner",
             Job::Carrier => "Carrier",
             Job::Cook => "Cook",
+            Job::Guard => "Guard",
             Job::Smelter => "Smelter",
             Job::Idle => "Idle",
         }
@@ -73,6 +76,10 @@ pub enum Task {
         pot: TilePos,
         remaining: f32,
     },
+    /// Chasing a wild creature (by wild id) to fight it.
+    Hunt {
+        target: u32,
+    },
     /// Walking to this smelter den to work it.
     GoSmelt(TilePos),
     Smelting {
@@ -99,6 +106,8 @@ pub struct Creature {
     pub satiation: f32,
     /// Seconds spent at zero satiation (blackout → desertion).
     pub starving_for: f32,
+    /// Health; raiders can kill guards. Set from species max_hp at spawn.
+    pub hp: f32,
 }
 
 impl Creature {
@@ -114,6 +123,7 @@ impl Creature {
             carrying: None,
             satiation: 1.0,
             starving_for: 0.0,
+            hp: 1.0,
         }
     }
 
