@@ -23,6 +23,7 @@ pub const MAX_TICKS_PER_FRAME: u32 = 10;
 pub struct TickReport {
     pub deserters: Vec<Creature>,
     pub won_this_tick: bool,
+    pub factory_this_tick: bool,
 }
 
 /// Advance the simulation by one fixed step.
@@ -31,12 +32,31 @@ pub fn tick(session: &mut GameSession, data: &GameData) -> TickReport {
     let dt = SIM_DT;
     let balance = &data.balance;
 
-    // Generators: every farm grows, wild patches regrow.
-    for building in session.buildings.iter_mut().filter(|b| b.kind == "farm") {
-        building.stock = (building.stock + balance.farm_mushrooms_per_min / 60.0 * dt)
-            .min(balance.farm_storage_cap);
+    // Generators: farms grow, kilns smoulder, wild flora regrows.
+    use crate::state::creatures::Good;
+    for building in session.buildings.iter_mut() {
+        match building.kind.as_str() {
+            "farm" => {
+                let grown = (building.stock(Good::Mushroom)
+                    + balance.farm_mushrooms_per_min / 60.0 * dt)
+                    .min(balance.farm_storage_cap);
+                building.stocks.insert(Good::Mushroom, grown);
+            }
+            "kiln" => {
+                let converted =
+                    (balance.kiln_charcoal_per_min / 60.0 * dt).min(building.stock(Good::Wood));
+                if converted > 0.0 {
+                    building.take_stock(Good::Wood, converted);
+                    building.add_stock(Good::Charcoal, converted);
+                }
+            }
+            _ => {}
+        }
     }
     for regrow in session.patch_regrow.values_mut() {
+        *regrow = (*regrow - dt).max(0.0);
+    }
+    for regrow in session.sporewood_regrow.values_mut() {
         *regrow = (*regrow - dt).max(0.0);
     }
 
@@ -59,9 +79,16 @@ pub fn tick(session: &mut GameSession, data: &GameData) -> TickReport {
         won_this_tick = true;
     }
 
+    let mut factory_this_tick = false;
+    if !session.factory_complete && session.economy.metal >= balance.win2_metal {
+        session.factory_complete = true;
+        factory_this_tick = true;
+    }
+
     TickReport {
         deserters,
         won_this_tick,
+        factory_this_tick,
     }
 }
 
@@ -79,6 +106,18 @@ pub fn try_attract_beetle(session: &mut GameSession, data: &GameData) -> bool {
     }
     session.economy.ore_stock -= cost;
     session.spawn_creature("beetle", crate::state::creatures::Job::Carrier);
+    true
+}
+
+/// Spend banked ore to attract a salamander smelter. Requires a smelter
+/// den so the creature has somewhere to live and eat.
+pub fn try_attract_salamander(session: &mut GameSession, data: &GameData) -> bool {
+    let cost = data.balance.salamander_ore_cost;
+    if session.economy.ore_stock < cost || session.buildings_of("smelter").next().is_none() {
+        return false;
+    }
+    session.economy.ore_stock -= cost;
+    session.spawn_creature("salamander", crate::state::creatures::Job::Smelter);
     true
 }
 
@@ -327,6 +366,144 @@ mod tests {
         let new_farm = session.building_at(spot).expect("farm built");
         assert_eq!(new_farm.kind, "farm");
         assert_eq!(session.buildings_of("farm").count(), 2);
+    }
+
+    /// The charcoal chain end-to-end: kiln converts wood, salamander
+    /// claims ore + charcoal and forges metal (and eats the charcoal).
+    #[test]
+    fn kiln_and_salamander_forge_metal() {
+        use crate::state::creatures::Good;
+        let (data, mut session) = boot_on_config_seed();
+        session.economy.food = 500.0; // not under test here
+
+        // Drop a kiln and smelter directly next to spawn.
+        let spawn = session.spawn_tile();
+        let mut spots = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .filter(|(pos, _)| session.can_place_building(*pos))
+            .map(|(pos, _)| pos)
+            .collect::<Vec<_>>();
+        spots.sort_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y));
+        let kiln_pos = spots[0];
+        let den_pos = spots[1];
+        session
+            .buildings
+            .push(crate::state::structures::Building::new("kiln", kiln_pos));
+        session
+            .buildings
+            .push(crate::state::structures::Building::new("smelter", den_pos));
+        session
+            .building_at_mut(kiln_pos)
+            .unwrap()
+            .add_stock(Good::Wood, 6.0);
+        session
+            .building_at_mut(den_pos)
+            .unwrap()
+            .add_stock(Good::Ore, 6.0);
+        session.spawn_creature("salamander", Job::Smelter);
+
+        run_until(
+            &mut session,
+            &data,
+            8.0,
+            |_, _| {},
+            |s| s.economy.metal >= 2,
+        );
+
+        assert!(session.economy.metal >= 2, "salamander should forge metal");
+        let salamander = session
+            .creatures
+            .iter()
+            .find(|c| c.species == "salamander")
+            .expect("salamander survives");
+        assert!(salamander.satiation > 0.5, "smelting feeds the salamander");
+    }
+
+    /// The whole prototype on one fixed seed: famine → recover → first
+    /// victory → build the charcoal chain → salamander forges the factory
+    /// goal. This is the "one sitting" length probe.
+    #[test]
+    fn sim_to_factory_complete_on_fixed_seed() {
+        let (data, mut session) = boot_on_config_seed();
+        let mut reacted = false;
+        let mut rebalanced = false;
+        let mut placed = false;
+        let mut attracted = false;
+
+        let done_at = run_until(
+            &mut session,
+            &data,
+            70.0,
+            |s, t| {
+                if (t as u64).is_multiple_of(300) && t.fract() < 0.05 {
+                    use crate::state::creatures::Good;
+                    let kiln: Vec<(f32, f32)> = s
+                        .buildings_of("kiln")
+                        .map(|b| (b.stock(Good::Wood), b.stock(Good::Charcoal)))
+                        .collect();
+                    let den: Vec<(f32, f32)> = s
+                        .buildings_of("smelter")
+                        .map(|b| (b.stock(Good::Ore), b.stock(Good::Charcoal)))
+                        .collect();
+                    eprintln!(
+                        "[t={:.0}m] food={:.0} ore_bank={} metal={} won={} sites={} kiln={:?} den={:?} pop={} deserted={}",
+                        t / 60.0, s.economy.food, s.economy.ore_stock, s.economy.metal,
+                        s.won, s.build_sites.len(), kiln, den, s.creatures.len(), s.economy.deserted
+                    );
+                }
+                if !reacted && s.economy.food < 15.0 {
+                    let _ = reassign(s, &data, Job::Miner, Job::Carrier);
+                    let _ = reassign(s, &data, Job::Miner, Job::Carrier);
+                    reacted = true;
+                }
+                // Food stabilized: send one carrier back to the mines.
+                if reacted && !rebalanced && s.economy.food > 60.0 {
+                    let _ = reassign(s, &data, Job::Carrier, Job::Miner);
+                    rebalanced = true;
+                }
+                // After the first win, invest in the smelting chain.
+                if s.won && !placed && s.economy.ore_stock >= 27 {
+                    let spawn = s.spawn_tile();
+                    let mut spots = s
+                        .world
+                        .tiles
+                        .iter_with_pos()
+                        .filter(|(pos, _)| s.can_place_building(*pos))
+                        .map(|(pos, _)| pos)
+                        .collect::<Vec<_>>();
+                    spots.sort_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y));
+                    assert!(try_place_build_site(s, &data, "kiln", spots[0]));
+                    assert!(try_place_build_site(s, &data, "smelter", spots[1]));
+                    placed = true;
+                }
+                if placed
+                    && !attracted
+                    && s.buildings_of("smelter").next().is_some()
+                    && s.economy.ore_stock >= data.balance.salamander_ore_cost
+                {
+                    attracted = try_attract_salamander(s, &data);
+                }
+            },
+            |s| s.factory_complete,
+        );
+
+        assert!(session.won, "first victory should land on the way");
+        assert!(attracted, "the salamander never arrived");
+        assert!(
+            session.factory_complete,
+            "expected the factory goal within 70 sim-minutes"
+        );
+        let minutes = done_at / 60.0;
+        eprintln!(
+            "[balance probe] factory complete at {minutes:.1} sim-min ({} metal, {} deserted)",
+            session.economy.metal, session.economy.deserted
+        );
+        assert!(
+            (20.0..=60.0).contains(&minutes),
+            "full run took {minutes:.1} min; want a ~30-minute sitting"
+        );
     }
 
     /// Full-session serde roundtrip: a loaded save simulates identically

@@ -28,6 +28,10 @@ pub struct GameConfig {
 pub struct SpeciesDef {
     pub id: String,
     pub name: String,
+    /// What this species eats: "food" (the cooked stockpile) or
+    /// "charcoal" (drawn from its workplace) — each new diet is a supply
+    /// chain, not just a stat (plan §3).
+    pub diet: String,
     /// Base upkeep draw while working a normal job (food per minute).
     pub food_per_min: f32,
     pub move_tiles_per_sec: f32,
@@ -67,8 +71,26 @@ pub struct Balance {
     pub satiation_drain_sec: f32,
     pub desert_after_starving_sec: f32,
     pub beetle_ore_cost: u32,
+    pub salamander_ore_cost: u32,
+    pub sporewood_regrow_sec: f32,
+    /// Kiln wood→charcoal conversion rate (no worker needed; it smoulders).
+    pub kiln_charcoal_per_min: f32,
+    pub kiln_wood_cap: f32,
+    pub smelt_batch_ore: u32,
+    pub smelt_batch_charcoal: f32,
+    pub smelt_batch_time_sec: f32,
+    /// Carriers keep each smelter's ore stock topped up to this level.
+    pub smelter_ore_target: u32,
+    /// Seconds for a charcoal-eater to go from fed to starving without
+    /// charcoal at its den.
+    pub salamander_hunger_drain_sec: f32,
+    /// Below this food level carriers drop industry hauling and feed the
+    /// kitchen first — the load-shedding rule of the food grid.
+    pub carrier_food_reserve: f32,
     pub win_food_surplus: f32,
     pub win_ore_delivered: u32,
+    /// Metal to forge for the extended "Factory Complete" goal.
+    pub win2_metal: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -16,11 +16,14 @@ pub enum Tile {
     Water,
     MushroomPatch,
     OreVein,
+    /// Fungal timber: harvested for wood, regrows (the charcoal chain's
+    /// root resource).
+    Sporewood,
 }
 
 impl Tile {
     pub fn walkable(self) -> bool {
-        matches!(self, Tile::Floor | Tile::MushroomPatch)
+        matches!(self, Tile::Floor | Tile::MushroomPatch | Tile::Sporewood)
     }
 }
 
@@ -39,6 +42,7 @@ impl WorldMap {
         carve_tunnels(&mut tiles, center, rng);
         place_water_pools(&mut tiles, rng);
         place_mushroom_patches(&mut tiles, rng);
+        place_sporewood_groves(&mut tiles, center, rng);
         place_ore_veins(&mut tiles, rng);
 
         Self {
@@ -148,6 +152,29 @@ fn place_mushroom_patches(tiles: &mut FlatGrid<Tile>, rng: &mut SeededRng) {
     }
 }
 
+/// Sporewood groves cluster on floor away from the spawn chamber — the
+/// timber run is meant to be a real haul.
+fn place_sporewood_groves(tiles: &mut FlatGrid<Tile>, center: TilePos, rng: &mut SeededRng) {
+    let candidates: Vec<TilePos> = tiles
+        .iter_with_pos()
+        .filter(|(pos, t)| **t == Tile::Floor && pos.manhattan_distance(&center) >= 8)
+        .map(|(pos, _)| pos)
+        .collect();
+
+    let grove_count = 2 + rng.below(2);
+    for _ in 0..grove_count {
+        let Some(&seed) = rng.choose(&candidates) else {
+            return;
+        };
+        tiles.set(seed, Tile::Sporewood);
+        for neighbor in seed.neighbors_8way() {
+            if rng.chance(0.45) && tiles.get(neighbor) == Some(&Tile::Floor) {
+                tiles.set(neighbor, Tile::Sporewood);
+            }
+        }
+    }
+}
+
 /// Ore veins embed in rock that touches an open floor tile, so miners can
 /// reach them from day one.
 fn place_ore_veins(tiles: &mut FlatGrid<Tile>, rng: &mut SeededRng) {
@@ -219,12 +246,14 @@ mod tests {
         let mut water = 0;
         let mut mushrooms = 0;
         let mut ore = 0;
+        let mut sporewood = 0;
         for (_, tile) in map.tiles.iter_with_pos() {
             match tile {
                 Tile::Floor => floors += 1,
                 Tile::Water => water += 1,
                 Tile::MushroomPatch => mushrooms += 1,
                 Tile::OreVein => ore += 1,
+                Tile::Sporewood => sporewood += 1,
                 Tile::Rock => {}
             }
         }
@@ -236,6 +265,7 @@ mod tests {
         assert!(water > 0, "expected at least one water pool");
         assert!(mushrooms > 0, "expected mushroom patches");
         assert!(ore > 0, "expected reachable ore veins");
+        assert!(sporewood > 0, "expected sporewood groves");
     }
 
     #[test]

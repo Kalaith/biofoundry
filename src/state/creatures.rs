@@ -8,6 +8,8 @@ pub enum Job {
     Miner,
     Carrier,
     Cook,
+    /// Salamanders only: the living furnace at a smelter den.
+    Smelter,
     Idle,
 }
 
@@ -17,16 +19,19 @@ impl Job {
             Job::Miner => "Miner",
             Job::Carrier => "Carrier",
             Job::Cook => "Cook",
+            Job::Smelter => "Smelter",
             Job::Idle => "Idle",
         }
     }
 }
 
-/// What a creature is holding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// What a creature can hold or a building can stock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Good {
     Mushroom,
     Ore,
+    Wood,
+    Charcoal,
 }
 
 /// What a creature is currently doing. Movement is generic: while `path` is
@@ -55,19 +60,23 @@ pub enum Task {
         source: TilePos,
         remaining: f32,
     },
-    /// Carry mushrooms to this cook pot.
-    DeliverMushrooms(TilePos),
-    /// Walking to the stockpile to load construction ore.
+    /// Carry the load to this building or build site.
+    DeliverTo(TilePos),
+    /// Walking to the stockpile to load construction/smelting ore.
     GoPickupOre,
     PickingUpOre {
         remaining: f32,
     },
-    /// Carry construction ore to this build site.
-    DeliverBuildMaterial(TilePos),
     /// Walking to this cook pot to work it.
     GoCook(TilePos),
     Cooking {
         pot: TilePos,
+        remaining: f32,
+    },
+    /// Walking to this smelter den to work it.
+    GoSmelt(TilePos),
+    Smelting {
+        den: TilePos,
         remaining: f32,
     },
 }

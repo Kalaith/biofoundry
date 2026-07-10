@@ -12,6 +12,18 @@
     "buildable": true
   },
   {
+    "id": "kiln",
+    "name": "Charcoal Kiln",
+    "cost_ore": 12,
+    "buildable": true
+  },
+  {
+    "id": "smelter",
+    "name": "Smelter Den",
+    "cost_ore": 15,
+    "buildable": true
+  },
+  {
     "id": "stockpile",
     "name": "Stockpile",
     "cost_ore": 0,

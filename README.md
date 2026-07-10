@@ -26,9 +26,16 @@ Design and phase plan: see [`biofoundry_plan.md`](biofoundry_plan.md).
   (several farms/pots, per-building stock), banked-ore economy, full-sim
   save/load (F5/F9, toolkit persistence), capture scenes `factory` and
   `famine`.
-- **Phase 2b (next)**: Tier 1 species with distinct diets (salamander
-  smelter + charcoal chain, slime janitor, bat courier), food variety and
-  spoilage, feeding troughs.
+- **Phase 2b (done)**: the first diet chain. Sporewood groves → carriers
+  haul wood → Charcoal Kiln smoulders it into charcoal → the Salamander
+  Smelter (attracted for ore, eats charcoal — its meal is its fuel) forges
+  ore into metal. Carriers load-shed: kitchen first when food dips below
+  reserve, industry otherwise. Extended goal: forge 20 metal ("Factory
+  Complete"). Full-run probe on the fixed seed: famine ~5.5 min → first
+  victory ~14 min → **factory complete ~34 sim-minutes** — a full sitting.
+- **Phase 3 (next)**: capture/study/adapt progression, wild creatures,
+  raids and defense (plus slime janitor / bat courier / spoilage from the
+  Phase 2 backlog).
 
 ## Run
 

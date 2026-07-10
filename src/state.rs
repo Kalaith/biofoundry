@@ -41,6 +41,8 @@ pub struct Economy {
     pub ore_stock: u32,
     /// Lifetime ore delivered (win condition counter; never spent).
     pub ore_delivered_total: u32,
+    /// Metal forged by salamanders (extended-goal counter).
+    pub metal: u32,
     /// Creatures lost to starvation desertion (blackout consequence).
     pub deserted: u32,
     /// Smoothed food production rate (per minute) for the calorie meter —
@@ -65,11 +67,17 @@ pub struct GameSession {
     /// Wild mushroom patches: seconds until regrown (0 = harvestable).
     #[serde(with = "serde_helpers::tile_key_map")]
     pub patch_regrow: HashMap<TilePos, f32>,
+    /// Sporewood groves: seconds until regrown (0 = harvestable).
+    #[serde(with = "serde_helpers::tile_key_map")]
+    pub sporewood_regrow: HashMap<TilePos, f32>,
     /// Ore remaining per vein tile; mined-out veins open into floor.
     #[serde(with = "serde_helpers::tile_key_map")]
     pub vein_ore: HashMap<TilePos, u32>,
     pub won: bool,
     pub victory_shown: bool,
+    /// Extended goal: the smelting chain forged `win2_metal` metal.
+    pub factory_complete: bool,
+    pub factory_shown: bool,
 }
 
 impl GameSession {
@@ -84,6 +92,12 @@ impl GameSession {
             .tiles
             .iter_with_pos()
             .filter(|(_, t)| **t == Tile::MushroomPatch)
+            .map(|(pos, _)| (pos, 0.0))
+            .collect();
+        let sporewood_regrow = world
+            .tiles
+            .iter_with_pos()
+            .filter(|(_, t)| **t == Tile::Sporewood)
             .map(|(pos, _)| (pos, 0.0))
             .collect();
         let vein_ore = world
@@ -104,15 +118,19 @@ impl GameSession {
                 food: balance.start_food,
                 ore_stock: 0,
                 ore_delivered_total: 0,
+                metal: 0,
                 deserted: 0,
                 production_ema_per_min: 0.0,
             },
             creatures: Vec::new(),
             next_creature_id: 1,
             patch_regrow,
+            sporewood_regrow,
             vein_ore,
             won: false,
             victory_shown: false,
+            factory_complete: false,
+            factory_shown: false,
         };
 
         for _ in 0..balance.start_miners {

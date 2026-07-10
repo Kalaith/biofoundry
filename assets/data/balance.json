@@ -9,7 +9,7 @@
   "farm_storage_cap": 24.0,
   "farm_min_distance": 8,
   "patch_regrow_sec": 90.0,
-  "vein_ore_yield": 6,
+  "vein_ore_yield": 14,
   "mine_time_sec": 8.0,
   "dig_time_sec": 5.0,
   "haul_pickup_sec": 4.0,
@@ -20,6 +20,17 @@
   "satiation_drain_sec": 60.0,
   "desert_after_starving_sec": 90.0,
   "beetle_ore_cost": 25,
+  "salamander_ore_cost": 30,
+  "sporewood_regrow_sec": 45.0,
+  "kiln_charcoal_per_min": 3.0,
+  "kiln_wood_cap": 8.0,
+  "smelt_batch_ore": 2,
+  "smelt_batch_charcoal": 1.0,
+  "smelt_batch_time_sec": 10.0,
+  "smelter_ore_target": 6,
+  "salamander_hunger_drain_sec": 120.0,
+  "carrier_food_reserve": 40.0,
   "win_food_surplus": 100.0,
-  "win_ore_delivered": 50
+  "win_ore_delivered": 50,
+  "win2_metal": 20
 }

@@ -127,6 +127,10 @@ impl Game {
                 if report.won_this_tick {
                     self.notifications.success("The warren thrives — victory!");
                 }
+                if report.factory_this_tick {
+                    self.notifications
+                        .success("The Biofoundry roars — factory complete!");
+                }
                 self.accumulator -= SIM_DT;
                 ticks += 1;
             }
@@ -236,9 +240,25 @@ impl Game {
                     }
                 }
             }
+            UiAction::AttractSalamander => {
+                if let GameState::Warren(session) = &mut self.state {
+                    if simulation::try_attract_salamander(session, &self.data) {
+                        self.notifications
+                            .success("A salamander curls into the smelter den.");
+                    } else {
+                        self.notifications
+                            .warning("Needs a Smelter Den and enough banked ore.");
+                    }
+                }
+            }
             UiAction::DismissVictory => {
                 if let GameState::Warren(session) = &mut self.state {
                     session.victory_shown = true;
+                }
+            }
+            UiAction::DismissFactory => {
+                if let GameState::Warren(session) = &mut self.state {
+                    session.factory_shown = true;
                 }
             }
             UiAction::SetMode(mode) => {

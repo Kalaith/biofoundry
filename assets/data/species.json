@@ -2,6 +2,7 @@
   {
     "id": "goblin",
     "name": "Goblin",
+    "diet": "food",
     "food_per_min": 2.0,
     "move_tiles_per_sec": 2.0,
     "carry_capacity": 1,
@@ -10,9 +11,19 @@
   {
     "id": "beetle",
     "name": "Beetle Hauler",
+    "diet": "food",
     "food_per_min": 8.0,
     "move_tiles_per_sec": 2.0,
     "carry_capacity": 5,
+    "reassignable": false
+  },
+  {
+    "id": "salamander",
+    "name": "Salamander Smelter",
+    "diet": "charcoal",
+    "food_per_min": 0.0,
+    "move_tiles_per_sec": 1.8,
+    "carry_capacity": 0,
     "reassignable": false
   }
 ]

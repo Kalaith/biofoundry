@@ -54,6 +54,20 @@ fn draw_tiles(session: &GameSession, ts: f32) {
                     Color::new(0.75, 0.62, 0.35, 1.0),
                 );
             }
+            Tile::Sporewood => {
+                let grown = session
+                    .sporewood_regrow
+                    .get(&pos)
+                    .is_none_or(|regrow| *regrow <= 0.0);
+                let color = if grown {
+                    Color::new(0.42, 0.55, 0.30, 1.0)
+                } else {
+                    Color::new(0.30, 0.34, 0.24, 1.0)
+                };
+                // A stubby fungal trunk with a cap.
+                draw_rectangle(x + ts * 0.42, y + ts * 0.4, ts * 0.16, ts * 0.4, color);
+                draw_circle(x + ts * 0.5, y + ts * 0.38, ts * 0.22, color);
+            }
             _ => {}
         }
     }
@@ -66,6 +80,7 @@ fn tile_color(tile: Tile) -> Color {
         Tile::Water => Color::new(0.16, 0.30, 0.42, 1.0),
         Tile::MushroomPatch => Color::new(0.24, 0.20, 0.17, 1.0),
         Tile::OreVein => Color::new(0.20, 0.17, 0.16, 1.0),
+        Tile::Sporewood => Color::new(0.22, 0.21, 0.16, 1.0),
     }
 }
 
@@ -86,6 +101,7 @@ fn draw_dig_marks(session: &GameSession, ts: f32) {
 }
 
 fn draw_building(session: &GameSession, building: &Building, ts: f32) {
+    use crate::state::creatures::Good;
     let (x, y) = (building.pos.x as f32 * ts, building.pos.y as f32 * ts);
     match building.kind.as_str() {
         "farm" => {
@@ -97,7 +113,7 @@ fn draw_building(session: &GameSession, building: &Building, ts: f32) {
                 Color::new(0.16, 0.30, 0.16, 1.0),
             );
             for i in 0..3 {
-                let filled = building.stock >= (i as f32 + 1.0) * 4.0;
+                let filled = building.stock(Good::Mushroom) >= (i as f32 + 1.0) * 4.0;
                 let color = if filled {
                     Color::new(0.80, 0.72, 0.50, 1.0)
                 } else {
@@ -115,8 +131,66 @@ fn draw_building(session: &GameSession, building: &Building, ts: f32) {
             let (cx, cy) = (x + ts * 0.5, y + ts * 0.5);
             draw_circle(cx, cy, ts * 0.34, Color::new(0.16, 0.12, 0.10, 1.0));
             draw_circle_lines(cx, cy, ts * 0.34, 2.0, Color::new(0.85, 0.55, 0.25, 1.0));
-            if building.stock >= 1.0 {
+            if building.stock(Good::Mushroom) >= 1.0 {
                 draw_circle(cx, cy, ts * 0.14, Color::new(0.85, 0.75, 0.55, 1.0));
+            }
+        }
+        "kiln" => {
+            draw_rectangle(
+                x + 3.0,
+                y + 3.0,
+                ts - 6.0,
+                ts - 6.0,
+                Color::new(0.22, 0.20, 0.20, 1.0),
+            );
+            // Mouth glows while wood smoulders inside.
+            let glowing = building.stock(Good::Wood) > 0.0;
+            let mouth = if glowing {
+                Color::new(0.95, 0.55, 0.20, 1.0)
+            } else {
+                Color::new(0.35, 0.30, 0.28, 1.0)
+            };
+            draw_circle(x + ts * 0.5, y + ts * 0.6, ts * 0.16, mouth);
+            if building.stock(Good::Charcoal) >= 1.0 {
+                draw_circle(
+                    x + ts * 0.75,
+                    y + ts * 0.28,
+                    ts * 0.10,
+                    Color::new(0.15, 0.15, 0.16, 1.0),
+                );
+            }
+        }
+        "smelter" => {
+            draw_rectangle(
+                x + 3.0,
+                y + 3.0,
+                ts - 6.0,
+                ts - 6.0,
+                Color::new(0.30, 0.16, 0.13, 1.0),
+            );
+            draw_rectangle_lines(
+                x + 3.0,
+                y + 3.0,
+                ts - 6.0,
+                ts - 6.0,
+                2.0,
+                Color::new(0.85, 0.45, 0.25, 0.9),
+            );
+            if building.stock(Good::Ore) >= 1.0 {
+                draw_circle(
+                    x + ts * 0.3,
+                    y + ts * 0.32,
+                    ts * 0.09,
+                    Color::new(0.75, 0.62, 0.35, 1.0),
+                );
+            }
+            if building.stock(Good::Charcoal) >= 1.0 {
+                draw_circle(
+                    x + ts * 0.7,
+                    y + ts * 0.32,
+                    ts * 0.09,
+                    Color::new(0.15, 0.15, 0.16, 1.0),
+                );
             }
         }
         "stockpile" => {
@@ -209,10 +283,10 @@ fn draw_tool_ghost(session: &GameSession, ts: f32, mode: &UiMode, hover: Option<
 fn draw_creature(creature: &Creature, ts: f32) {
     let x = creature.x * ts;
     let y = creature.y * ts;
-    let is_beetle = creature.species == "beetle";
-    let radius = if is_beetle { ts * 0.34 } else { ts * 0.24 };
+    let big = creature.species != "goblin";
+    let radius = if big { ts * 0.34 } else { ts * 0.24 };
 
-    draw_circle(x, y, radius, job_color(creature.job, is_beetle));
+    draw_circle(x, y, radius, creature_color(creature));
 
     // Hunger telegraph: amber ring when hungry, red when starving.
     if creature.satiation <= 0.33 {
@@ -226,19 +300,23 @@ fn draw_creature(creature: &Creature, ts: f32) {
         let color = match good {
             crate::state::creatures::Good::Mushroom => Color::new(0.9, 0.85, 0.7, 1.0),
             crate::state::creatures::Good::Ore => Color::new(0.75, 0.62, 0.35, 1.0),
+            crate::state::creatures::Good::Wood => Color::new(0.55, 0.42, 0.28, 1.0),
+            crate::state::creatures::Good::Charcoal => Color::new(0.15, 0.15, 0.16, 1.0),
         };
         draw_circle(x, y - radius * 0.9, ts * 0.09, color);
     }
 }
 
-fn job_color(job: Job, is_beetle: bool) -> Color {
-    if is_beetle {
-        return Color::new(0.62, 0.40, 0.75, 1.0);
-    }
-    match job {
-        Job::Miner => Color::new(0.45, 0.62, 0.85, 1.0),
-        Job::Carrier => Color::new(0.85, 0.75, 0.38, 1.0),
-        Job::Cook => Color::new(0.88, 0.52, 0.28, 1.0),
-        Job::Idle => Color::new(0.55, 0.55, 0.58, 1.0),
+fn creature_color(creature: &Creature) -> Color {
+    match creature.species.as_str() {
+        "beetle" => Color::new(0.62, 0.40, 0.75, 1.0),
+        "salamander" => Color::new(0.92, 0.35, 0.18, 1.0),
+        _ => match creature.job {
+            Job::Miner => Color::new(0.45, 0.62, 0.85, 1.0),
+            Job::Carrier => Color::new(0.85, 0.75, 0.38, 1.0),
+            Job::Cook => Color::new(0.88, 0.52, 0.28, 1.0),
+            Job::Smelter => Color::new(0.92, 0.35, 0.18, 1.0),
+            Job::Idle => Color::new(0.55, 0.55, 0.58, 1.0),
+        },
     }
 }

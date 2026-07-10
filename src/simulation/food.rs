@@ -34,6 +34,10 @@ pub fn time_to_empty_sec(food: f32, production: f32, consumption: f32) -> Option
 
 /// Drain the stockpile by total upkeep and update every creature's
 /// satiation. Returns creatures that deserted this tick (already removed).
+///
+/// Diets: "food" eaters draw the shared stockpile; "charcoal" eaters
+/// (salamanders) refill by consuming charcoal at their den when they
+/// smelt, and only hunger slowly between meals.
 pub fn tick_hunger(session: &mut GameSession, data: &GameData, dt: f32) -> Vec<Creature> {
     let consumption = consumption_per_min(session, data);
     let fed = session.economy.food > 0.0;
@@ -41,11 +45,25 @@ pub fn tick_hunger(session: &mut GameSession, data: &GameData, dt: f32) -> Vec<C
 
     let b = &data.balance;
     for creature in &mut session.creatures {
-        if fed {
-            creature.satiation = (creature.satiation + dt / b.satiation_recover_sec).min(1.0);
-            creature.starving_for = 0.0;
+        let eats_food = data
+            .species
+            .get(&creature.species)
+            .map(|s| s.diet == "food")
+            .unwrap_or(true);
+        if eats_food {
+            if fed {
+                creature.satiation = (creature.satiation + dt / b.satiation_recover_sec).min(1.0);
+                creature.starving_for = 0.0;
+            } else {
+                creature.satiation = (creature.satiation - dt / b.satiation_drain_sec).max(0.0);
+                if creature.satiation <= 0.0 {
+                    creature.starving_for += dt;
+                }
+            }
         } else {
-            creature.satiation = (creature.satiation - dt / b.satiation_drain_sec).max(0.0);
+            // Charcoal eaters: meals happen at the den (jobs.rs); here
+            // they just get slowly hungrier.
+            creature.satiation = (creature.satiation - dt / b.salamander_hunger_drain_sec).max(0.0);
             if creature.satiation <= 0.0 {
                 creature.starving_for += dt;
             }

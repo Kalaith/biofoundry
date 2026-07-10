@@ -31,7 +31,9 @@ pub enum UiAction {
     /// Move one goblin out of this job into the idle pool.
     Unassign(Job),
     AttractBeetle,
+    AttractSalamander,
     DismissVictory,
+    DismissFactory,
     /// Toggle a tool mode (clicking the active mode returns to Inspect).
     SetMode(UiMode),
     /// The player clicked this world tile with the active tool.

@@ -18,9 +18,9 @@ pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi, mode: &UiMod
     let mouse = ui.mouse_position();
 
     let top_bar = Rect::new(12.0, 12.0, LOGICAL_WIDTH - 24.0, 48.0);
-    let food_panel = Rect::new(12.0, 72.0, PANEL_W, 208.0);
-    let jobs_panel = Rect::new(12.0, 290.0, PANEL_W, 224.0);
-    let tools_panel = Rect::new(12.0, 524.0, PANEL_W, 184.0);
+    let food_panel = Rect::new(12.0, 66.0, PANEL_W, 204.0);
+    let jobs_panel = Rect::new(12.0, 276.0, PANEL_W, 240.0);
+    let tools_panel = Rect::new(12.0, 522.0, PANEL_W, 172.0);
 
     draw_top_bar(session, top_bar, mouse, &mut actions);
     draw_food_grid_panel(session, data, food_panel);
@@ -28,11 +28,36 @@ pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi, mode: &UiMod
     draw_tools_panel(session, data, tools_panel, mode, mouse, &mut actions);
 
     let victory_up = session.won && !session.victory_shown;
-    if victory_up {
-        draw_victory_overlay(session, mouse, &mut actions);
+    let factory_up = session.factory_complete && !session.factory_shown;
+    if factory_up {
+        draw_goal_overlay(
+            "Factory Complete",
+            &format!(
+                "The Biofoundry roars: {} metal forged by living furnaces in {:.0} minutes.\n\nEvery belt breathes. Keep playing, or return to the menu.",
+                session.economy.metal,
+                simulation::sim_seconds(session) / 60.0
+            ),
+            UiAction::DismissFactory,
+            mouse,
+            &mut actions,
+        );
+    } else if victory_up {
+        draw_goal_overlay(
+            "Victory",
+            &format!(
+                "The warren thrives: a 100-food surplus and {} ore delivered in {:.0} minutes.\n\nNext: build a Charcoal Kiln and Smelter Den, then attract a salamander to forge {} metal.",
+                session.economy.ore_delivered_total,
+                simulation::sim_seconds(session) / 60.0,
+                data.balance.win2_metal
+            ),
+            UiAction::DismissVictory,
+            mouse,
+            &mut actions,
+        );
     }
 
     let pointer_over_ui = victory_up
+        || factory_up
         || [top_bar, food_panel, jobs_panel, tools_panel]
             .iter()
             .any(|r| r.contains_point(mouse));
@@ -105,22 +130,22 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
     let consumption = food::consumption_per_min(session, data);
     let net = production - consumption;
     let x = panel.x + 14.0;
-    let mut y = panel.y + 56.0;
+    let mut y = panel.y + 50.0;
 
     draw_ui_text_ex(
         &format!("Production  +{production:.1}/min"),
         x,
         y,
-        TextStyle::new(16.0, dark::POSITIVE).params(),
+        TextStyle::new(15.0, dark::POSITIVE).params(),
     );
-    y += 24.0;
+    y += 21.0;
     draw_ui_text_ex(
         &format!("Upkeep      -{consumption:.1}/min"),
         x,
         y,
-        TextStyle::new(16.0, dark::NEGATIVE).params(),
+        TextStyle::new(15.0, dark::NEGATIVE).params(),
     );
-    y += 24.0;
+    y += 21.0;
     let net_color = if net >= 0.0 {
         dark::POSITIVE
     } else {
@@ -130,12 +155,12 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
         &format!("Net         {net:+.1}/min"),
         x,
         y,
-        TextStyle::new(16.0, net_color).params(),
+        TextStyle::new(15.0, net_color).params(),
     );
-    y += 18.0;
+    y += 15.0;
 
     meter(
-        Rect::new(x, y, panel.w - 28.0, 20.0),
+        Rect::new(x, y, panel.w - 28.0, 18.0),
         session.economy.food,
         data.balance.win_food_surplus,
         if session.economy.food > 15.0 {
@@ -148,7 +173,7 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
             session.economy.food, data.balance.win_food_surplus
         )),
     );
-    y += 36.0;
+    y += 30.0;
 
     if let Some(secs) = food::time_to_empty_sec(session.economy.food, production, consumption) {
         if session.economy.food > 0.0 {
@@ -156,21 +181,28 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
                 &format!("Empty in {secs:.0}s"),
                 x,
                 y,
-                TextStyle::new(15.0, dark::WARNING).params(),
+                TextStyle::new(14.0, dark::WARNING).params(),
             );
         }
     }
-    y += 22.0;
+    y += 20.0;
 
-    let farm_stock: f32 = session.buildings_of("farm").map(|b| b.stock).sum();
-    let pot_stock: f32 = session.buildings_of("cook_pot").map(|b| b.stock).sum();
+    use crate::state::creatures::Good;
+    let farm_stock: f32 = session
+        .buildings_of("farm")
+        .map(|b| b.stock(Good::Mushroom))
+        .sum();
+    let pot_stock: f32 = session
+        .buildings_of("cook_pot")
+        .map(|b| b.stock(Good::Mushroom))
+        .sum();
     draw_ui_text_ex(
         &format!("Farms {farm_stock:.0} shrooms · Pots {pot_stock:.0}"),
         x,
         y,
         TextStyle::new(14.0, dark::TEXT_DIM).params(),
     );
-    y += 22.0;
+    y += 20.0;
     draw_ui_text_ex(
         &format!(
             "Ore banked {} · delivered {}/{}",
@@ -180,7 +212,22 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
         ),
         x,
         y,
-        TextStyle::new(15.0, dark::TEXT).params(),
+        TextStyle::new(14.0, dark::TEXT).params(),
+    );
+    y += 20.0;
+    let metal_color = if session.economy.metal > 0 {
+        dark::TEXT
+    } else {
+        dark::TEXT_DIM
+    };
+    draw_ui_text_ex(
+        &format!(
+            "Metal forged {}/{}",
+            session.economy.metal, data.balance.win2_metal
+        ),
+        x,
+        y,
+        TextStyle::new(15.0, metal_color).params(),
     );
 }
 
@@ -200,32 +247,32 @@ fn draw_jobs_panel(
 
     let idle = session.job_count(Job::Idle);
     let x = panel.x + 14.0;
-    let mut y = panel.y + 48.0;
+    let mut y = panel.y + 44.0;
 
     for job in [Job::Miner, Job::Carrier, Job::Cook] {
         let count = session.job_count(job);
         draw_ui_text_ex(
             &format!("{:<8}{count}", job.label()),
             x,
-            y + 20.0,
-            TextStyle::new(17.0, dark::TEXT).params(),
+            y + 19.0,
+            TextStyle::new(16.0, dark::TEXT).params(),
         );
-        if hud_button(Rect::new(x + 130.0, y, 34.0, 28.0), "-", count > 0, mouse) {
+        if hud_button(Rect::new(x + 130.0, y, 34.0, 26.0), "-", count > 0, mouse) {
             actions.push(UiAction::Unassign(job));
         }
-        if hud_button(Rect::new(x + 172.0, y, 34.0, 28.0), "+", idle > 0, mouse) {
+        if hud_button(Rect::new(x + 172.0, y, 34.0, 26.0), "+", idle > 0, mouse) {
             actions.push(UiAction::Assign(job));
         }
-        y += 36.0;
+        y += 32.0;
     }
 
     draw_ui_text_ex(
         &format!("Idle    {idle}"),
         x,
-        y + 20.0,
-        TextStyle::new(17.0, dark::TEXT_DIM).params(),
+        y + 18.0,
+        TextStyle::new(16.0, dark::TEXT_DIM).params(),
     );
-    y += 40.0;
+    y += 30.0;
 
     let beetles = session
         .creatures
@@ -234,12 +281,29 @@ fn draw_jobs_panel(
         .count();
     let cost = data.balance.beetle_ore_cost;
     if hud_button(
-        Rect::new(x, y, panel.w - 28.0, 34.0),
+        Rect::new(x, y, panel.w - 28.0, 32.0),
         &format!("Attract Beetle ({cost} ore) · have {beetles}"),
         session.economy.ore_stock >= cost,
         mouse,
     ) {
         actions.push(UiAction::AttractBeetle);
+    }
+    y += 38.0;
+
+    let salamanders = session
+        .creatures
+        .iter()
+        .filter(|c| c.species == "salamander")
+        .count();
+    let sala_cost = data.balance.salamander_ore_cost;
+    let has_den = session.buildings_of("smelter").next().is_some();
+    if hud_button(
+        Rect::new(x, y, panel.w - 28.0, 32.0),
+        &format!("Salamander ({sala_cost} ore) · have {salamanders}"),
+        has_den && session.economy.ore_stock >= sala_cost,
+        mouse,
+    ) {
+        actions.push(UiAction::AttractSalamander);
     }
 }
 
@@ -259,66 +323,67 @@ fn draw_tools_panel(
     );
 
     let x = panel.x + 14.0;
-    let mut y = panel.y + 44.0;
+    let mut y = panel.y + 42.0;
     let w = panel.w - 28.0;
+    let half = (w - 8.0) / 2.0;
 
+    // Build buttons, two per row: label is the short name + cost.
     let mut defs: Vec<_> = data.buildings.iter().filter(|(_, d)| d.buildable).collect();
     defs.sort_by(|a, b| a.0.cmp(b.0));
-    for (id, def) in defs {
-        let active = *mode == UiMode::Build(id.clone());
-        let label = format!(
-            "{}{} ({} ore)",
-            if active { "▶ " } else { "" },
-            def.name,
-            def.cost_ore
-        );
-        if hud_button(Rect::new(x, y, w, 30.0), &label, true, mouse) {
-            actions.push(UiAction::SetMode(UiMode::Build(id.clone())));
+    for pair in defs.chunks(2) {
+        for (i, (id, def)) in pair.iter().enumerate() {
+            let active = *mode == UiMode::Build((*id).clone());
+            let short = def.name.split_whitespace().last().unwrap_or(&def.name);
+            let label = format!(
+                "{}{short} ({})",
+                if active { "▶ " } else { "" },
+                def.cost_ore
+            );
+            let bx = x + (half + 8.0) * i as f32;
+            if hud_button(Rect::new(bx, y, half, 28.0), &label, true, mouse) {
+                actions.push(UiAction::SetMode(UiMode::Build((*id).clone())));
+            }
         }
-        y += 36.0;
+        y += 34.0;
     }
 
     let dig_active = *mode == UiMode::Dig;
-    let dig_label = if dig_active {
-        "▶ Dig (toggle marks)"
-    } else {
-        "Dig (toggle marks)"
-    };
-    if hud_button(Rect::new(x, y, w, 30.0), dig_label, true, mouse) {
+    let dig_label = if dig_active { "▶ Dig" } else { "Dig" };
+    if hud_button(Rect::new(x, y, half, 28.0), dig_label, true, mouse) {
         actions.push(UiAction::SetMode(UiMode::Dig));
     }
-    y += 40.0;
+    // Show pending construction so hauling progress is visible.
+    if !session.build_sites.is_empty() {
+        let pending: u32 = session.build_sites.iter().map(|s| s.remaining()).sum();
+        draw_ui_text_ex(
+            &format!("{} site(s) · {} ore", session.build_sites.len(), pending),
+            x + half + 8.0,
+            y + 19.0,
+            TextStyle::new(13.0, dark::TEXT_DIM).params(),
+        );
+    }
+    y += 34.0;
 
-    let half = (w - 8.0) / 2.0;
-    if hud_button(Rect::new(x, y, half, 30.0), "Save (F5)", true, mouse) {
+    if hud_button(Rect::new(x, y, half, 28.0), "Save (F5)", true, mouse) {
         actions.push(UiAction::Save);
     }
     if hud_button(
-        Rect::new(x + half + 8.0, y, half, 30.0),
+        Rect::new(x + half + 8.0, y, half, 28.0),
         "Load (F9)",
         true,
         mouse,
     ) {
         actions.push(UiAction::Load);
     }
-
-    // Show pending construction so hauling progress is visible.
-    if !session.build_sites.is_empty() {
-        let pending: u32 = session.build_sites.iter().map(|s| s.remaining()).sum();
-        draw_ui_text_ex(
-            &format!(
-                "{} site(s) awaiting {} ore",
-                session.build_sites.len(),
-                pending
-            ),
-            x,
-            y + 52.0,
-            TextStyle::new(14.0, dark::TEXT_DIM).params(),
-        );
-    }
 }
 
-fn draw_victory_overlay(session: &GameSession, mouse: Vec2, actions: &mut Vec<UiAction>) {
+fn draw_goal_overlay(
+    title: &str,
+    body: &str,
+    dismiss: UiAction,
+    mouse: Vec2,
+    actions: &mut Vec<UiAction>,
+) {
     draw_rectangle(
         0.0,
         0.0,
@@ -329,17 +394,13 @@ fn draw_victory_overlay(session: &GameSession, mouse: Vec2, actions: &mut Vec<Ui
     let panel = Rect::new(LOGICAL_WIDTH * 0.5 - 240.0, 200.0, 480.0, 250.0);
     draw_surface_with_title(
         panel,
-        Some("Victory"),
+        Some(title),
         &panel_style(),
         TextStyle::new(20.0, dark::TEXT_BRIGHT),
     );
 
-    let minutes = simulation::sim_seconds(session) / 60.0;
     draw_text_block(
-        &format!(
-            "The warren thrives: a 100-food surplus and {} ore delivered in {:.0} minutes.\n\nThe hunger grid held. Keep playing, or return to the menu.",
-            session.economy.ore_delivered_total, minutes
-        ),
+        body,
         panel.x + 20.0,
         panel.y + 60.0,
         panel.w - 40.0,
@@ -355,7 +416,7 @@ fn draw_victory_overlay(session: &GameSession, mouse: Vec2, actions: &mut Vec<Ui
         true,
         mouse,
     ) {
-        actions.push(UiAction::DismissVictory);
+        actions.push(dismiss);
     }
     if hud_button(
         Rect::new(panel.x + 250.0, panel.bottom() - 56.0, 160.0, 38.0),
