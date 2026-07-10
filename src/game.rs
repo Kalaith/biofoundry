@@ -3,11 +3,15 @@
 
 use crate::data::GameData;
 use crate::simulation::{self, MAX_TICKS_PER_FRAME, SIM_DT};
+use crate::state::creatures::Job;
 use crate::state::{GameSession, GameState, StateTransition};
 use crate::ui::{self, UiAction};
 use macroquad::prelude::*;
 use macroquad_toolkit::camera::{Camera2D, Camera2DConfig, CameraBounds};
 use macroquad_toolkit::events::EventBus;
+use macroquad_toolkit::notifications::{
+    NotificationAnchor, NotificationManager, NotificationRenderConfig,
+};
 use macroquad_toolkit::prelude::{begin_virtual_ui_frame, dark, end_virtual_ui_frame, InputState};
 
 pub struct Game {
@@ -15,8 +19,11 @@ pub struct Game {
     state: GameState,
     camera: Camera2D,
     events: EventBus<UiAction>,
+    notifications: NotificationManager,
     /// Real time not yet consumed by fixed-step sim ticks.
     accumulator: f32,
+    /// Edge detector for the famine warning toast.
+    famine_announced: bool,
 }
 
 impl Game {
@@ -32,7 +39,9 @@ impl Game {
             state: GameState::Menu,
             camera,
             events: EventBus::new(),
+            notifications: NotificationManager::new(),
             accumulator: 0.0,
+            famine_announced: false,
         }
     }
 
@@ -48,27 +57,42 @@ impl Game {
     }
 
     pub fn update(&mut self, dt: f32) {
+        self.notifications.update(dt);
         let input = InputState::capture();
 
-        match &mut self.state {
-            GameState::Menu => {}
-            GameState::Warren(session) => {
-                self.accumulator += dt;
-                let mut ticks = 0;
-                while self.accumulator >= SIM_DT && ticks < MAX_TICKS_PER_FRAME {
-                    simulation::tick(session);
-                    self.accumulator -= SIM_DT;
-                    ticks += 1;
+        if let GameState::Warren(session) = &mut self.state {
+            self.accumulator += dt;
+            let mut ticks = 0;
+            while self.accumulator >= SIM_DT && ticks < MAX_TICKS_PER_FRAME {
+                let report = simulation::tick(session, &self.data);
+                for deserter in &report.deserters {
+                    self.notifications.danger(format!(
+                        "A starving {} deserted the warren!",
+                        deserter.job.label().to_lowercase()
+                    ));
                 }
-                // Drop backlog beyond the cap instead of spiraling.
-                if self.accumulator >= SIM_DT {
-                    self.accumulator = 0.0;
+                if report.won_this_tick {
+                    self.notifications.success("The warren thrives — victory!");
                 }
+                self.accumulator -= SIM_DT;
+                ticks += 1;
+            }
+            // Drop backlog beyond the cap instead of spiraling.
+            if self.accumulator >= SIM_DT {
+                self.accumulator = 0.0;
+            }
 
-                self.camera.update(dt, false);
-                if input.escape_pressed {
-                    self.events.push(UiAction::BackToMenu);
-                }
+            if session.economy.food <= 0.0 && !self.famine_announced {
+                self.famine_announced = true;
+                self.notifications
+                    .warning("Famine! The stockpile is empty — workers are slowing.");
+            } else if session.economy.food > 5.0 {
+                self.famine_announced = false;
+            }
+
+            self.camera.update(dt, false);
+            if input.escape_pressed {
+                self.events.push(UiAction::BackToMenu);
             }
         }
 
@@ -94,7 +118,7 @@ impl Game {
                 set_default_camera();
 
                 let virtual_ui = begin_virtual_ui_frame(ui::LOGICAL_WIDTH, ui::LOGICAL_HEIGHT);
-                let actions = ui::warren::draw_hud(session, &virtual_ui);
+                let actions = ui::hud::draw(session, &self.data, &virtual_ui);
                 end_virtual_ui_frame();
                 actions
             }
@@ -103,22 +127,56 @@ impl Game {
         for action in actions {
             self.events.push(action);
         }
+
+        self.notifications
+            .draw_with_config(&NotificationRenderConfig {
+                anchor: NotificationAnchor::BottomRight,
+                ..Default::default()
+            });
     }
 
     fn apply_action(&mut self, action: UiAction) {
         match action {
             UiAction::StartWarren => self.transition(StateTransition::StartWarren),
             UiAction::BackToMenu => self.transition(StateTransition::BackToMenu),
+            UiAction::Assign(job) => self.reassign(Job::Idle, job),
+            UiAction::Unassign(job) => self.reassign(job, Job::Idle),
+            UiAction::AttractBeetle => {
+                if let GameState::Warren(session) = &mut self.state {
+                    if simulation::try_attract_beetle(session, &self.data) {
+                        self.notifications
+                            .success("A beetle hauler joins the warren.");
+                    } else {
+                        self.notifications.warning("Not enough ore delivered.");
+                    }
+                }
+            }
+            UiAction::DismissVictory => {
+                if let GameState::Warren(session) = &mut self.state {
+                    session.victory_shown = true;
+                }
+            }
         }
+    }
+
+    fn reassign(&mut self, from: Job, to: Job) {
+        let GameState::Warren(session) = &mut self.state else {
+            return;
+        };
+        let species = &self.data.species;
+        session.reassign(from, to, |s| {
+            species.get(s).map(|d| d.reassignable).unwrap_or(false)
+        });
     }
 
     fn transition(&mut self, transition: StateTransition) {
         match transition {
             StateTransition::StartWarren => {
-                let session = GameSession::new(&self.data.config, self.data.config.world_seed);
+                let session = GameSession::new(&self.data, self.data.config.world_seed);
                 self.reset_camera_for(&session);
                 self.accumulator = 0.0;
-                self.state = GameState::Warren(session);
+                self.famine_announced = false;
+                self.state = GameState::Warren(Box::new(session));
             }
             StateTransition::BackToMenu => {
                 self.state = GameState::Menu;

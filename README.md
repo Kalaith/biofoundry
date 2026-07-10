@@ -15,8 +15,14 @@ Design and phase plan: see [`biofoundry_plan.md`](biofoundry_plan.md).
 - **Phase 0 (done)**: package skeleton, tile-map warren generation
   (deterministic seeded RNG), toolkit camera pan/zoom, fixed-timestep
   simulation tick, menu/warren state machine, capture scenes.
-- **Phase 1 (next)**: the 10-minute prototype — goblins, jobs, the hunger
-  grid, calorie balance HUD, beetle hauler upgrade, win condition.
+- **Phase 1 (done)**: the 10-minute prototype. Goblin miners/carriers/cooks
+  with BFS pathfinding, the food grid (farm → haul → cook → stockpile),
+  hunger brownout/blackout with desertion, calorie balance HUD with
+  time-to-empty, job reassignment, beetle hauler upgrade, and the win
+  condition (100-food surplus + 50 ore). On the default seed the first
+  famine hits ~5.5 sim-minutes in and a reactive player wins ~13.6 minutes.
+- **Phase 2 (next)**: player-placed buildings, dig designations, real
+  stockpile logistics, Tier 1 species with diet chains, save/load.
 
 ## Run
 
