@@ -1,7 +1,7 @@
 //! The tutorial: a sequence of data-driven steps (`tutorial.json`) shown
 //! in the HUD. Each step completes when the player actually does the
-//! thing — pan the camera, reassign a worker, survive the famine, place a
-//! building, win. Pure guidance: it reads state and never touches the sim.
+//! thing — pan the camera, place a building, reassign a worker, survive
+//! the famine, win. Pure guidance: it reads state and never touches the sim.
 
 use crate::data::{GameData, TutorialDone, TutorialStepDef};
 use crate::simulation;
@@ -44,7 +44,6 @@ fn step_done(done: &TutorialDone, session: &GameSession, inputs: TutorialInputs)
     let sim_time = simulation::sim_seconds(session);
     match done {
         TutorialDone::CameraMoved => inputs.camera_moved,
-        TutorialDone::SimTimeAtLeast { value } => sim_time >= *value,
         TutorialDone::AnyReassign => session.tutorial_reassigned,
         // "Famine weathered": past the first-crisis window with the larder
         // healthy again — whether the player dodged it or dug out of it.
@@ -93,8 +92,9 @@ mod tests {
         ));
         assert_eq!(current_step(&session, &data).unwrap().id, "food_grid");
 
-        // Step 2 is time-gated; step 3 needs a reassign.
-        session.tick = (70.0 / simulation::SIM_DT) as u64;
+        // Step 2 asks for a build site; step 3 needs a reassign.
+        assert!(!advance(&mut session, &data, none));
+        session.tutorial_built = true;
         assert!(advance(&mut session, &data, none));
         assert_eq!(current_step(&session, &data).unwrap().id, "jobs");
         let moved = session.reassign(Job::Miner, Job::Carrier, |_| true);
@@ -107,10 +107,9 @@ mod tests {
         assert!(!advance(&mut session, &data, none), "too early to count");
         session.tick = (400.0 / simulation::SIM_DT) as u64;
         assert!(advance(&mut session, &data, none));
-        assert_eq!(current_step(&session, &data).unwrap().id, "build");
+        assert_eq!(current_step(&session, &data).unwrap().id, "goals");
 
-        // Build + win chain straight through to completion.
-        session.tutorial_built = true;
+        // Winning finishes the tutorial.
         session.won = true;
         assert!(advance(&mut session, &data, none));
         assert!(current_step(&session, &data).is_none(), "tutorial finished");

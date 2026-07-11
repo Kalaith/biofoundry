@@ -7,9 +7,9 @@
   },
   {
     "id": "food_grid",
-    "title": "Read the Food Grid",
-    "body": "Top-left: Production vs Upkeep. When the stockpile empties, everyone slows to a crawl. Keep the net positive.",
-    "done": { "kind": "sim_time_at_least", "value": 60.0 }
+    "title": "Grow the Food Grid",
+    "body": "Top-left: Production vs Upkeep — keep the net positive. Open Build & Dig, pick a Farm, and click open floor near your Cook Pot. Carriers haul the ore to build it.",
+    "done": { "kind": "site_placed" }
   },
   {
     "id": "jobs",
@@ -22,12 +22,6 @@
     "title": "Weather the famine",
     "body": "The first famine hits around minute five. Shift Miners into Carriers before the meter empties — hungry workers slow the whole warren.",
     "done": { "kind": "famine_recovered", "value": 30.0 }
-  },
-  {
-    "id": "build",
-    "title": "Grow the grid",
-    "body": "Banked ore builds new farms and pots. Open Build & Dig, pick a Farm, and click open floor near your Cook Pot — shorter hauls, faster stew.",
-    "done": { "kind": "site_placed" }
   },
   {
     "id": "goals",

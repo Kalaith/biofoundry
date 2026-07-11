@@ -166,8 +166,6 @@ pub struct UnlockDef {
 pub enum TutorialDone {
     /// The player panned or zoomed the camera.
     CameraMoved,
-    /// Enough sim time has passed to have read the panel.
-    SimTimeAtLeast { value: f32 },
     /// The player reassigned any worker.
     AnyReassign,
     /// A famine has come and gone: food is back above `value` after the

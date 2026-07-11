@@ -3,12 +3,21 @@
 > "An ant colony crossed with a factory builder, where every conveyor belt
 > is a creature with needs."
 
-A top-down 2D factory/colony hybrid where **every piece of automation is a
-living creature** and **food is the power grid**: farms are generators,
-cookhouses are power plants, stockpiles are batteries, famine is a brownout,
-and starvation is a blackout.
+A top-down 2D **colony simulation with an automation backbone** where every
+piece of automation is a living creature and **food is the power grid**:
+farms are generators, cookhouses are power plants, stockpiles are batteries,
+famine is a brownout, and starvation is a blackout.
 
-Design and phase plan: see [`biofoundry_plan.md`](biofoundry_plan.md).
+**Genre note:** despite the factory-builder framing, this plays closer to
+RimWorld/Dwarf Fortress than Factorio — indirect control (designate, assign
+jobs, place buildings; creatures do the work), no belts or direct unit
+orders. What it keeps from factory games is the optimization layer: a
+production/upkeep ledger, throughput-driven layout, and production chains.
+Simulation first, automation second. See
+[`game_design.md`](game_design.md) §1 for the full positioning.
+
+Design (as implemented): [`game_design.md`](game_design.md). Original phase
+plan: [`biofoundry_plan.md`](biofoundry_plan.md).
 
 ## Status
 

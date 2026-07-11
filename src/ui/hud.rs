@@ -18,9 +18,9 @@ pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi, mode: &UiMod
     let mouse = ui.mouse_position();
 
     let top_bar = Rect::new(12.0, 12.0, LOGICAL_WIDTH - 24.0, 48.0);
-    let food_panel = Rect::new(12.0, 66.0, PANEL_W, 204.0);
-    let jobs_panel = Rect::new(12.0, 276.0, PANEL_W, 230.0);
-    let tools_panel = Rect::new(12.0, 512.0, PANEL_W, 200.0);
+    let food_panel = Rect::new(12.0, 66.0, PANEL_W, 184.0);
+    let jobs_panel = Rect::new(12.0, 256.0, PANEL_W, 230.0);
+    let tools_panel = Rect::new(12.0, 492.0, PANEL_W, 200.0);
 
     draw_top_bar(session, top_bar, mouse, &mut actions);
     draw_food_grid_panel(session, data, food_panel);
@@ -139,8 +139,8 @@ fn draw_top_bar(session: &GameSession, bar: Rect, mouse: Vec2, actions: &mut Vec
     }
 }
 
-/// The calorie balance meter — production, consumption, stockpile, and
-/// time-to-empty, exactly like a power graph.
+/// The calorie balance meter — production, consumption, and stockpile,
+/// exactly like a power graph.
 fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
     draw_surface_with_title(
         panel,
@@ -197,18 +197,6 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
         )),
     );
     y += 30.0;
-
-    if let Some(secs) = food::time_to_empty_sec(session.economy.food, production, consumption) {
-        if session.economy.food > 0.0 {
-            draw_ui_text_ex(
-                &format!("Empty in {secs:.0}s"),
-                x,
-                y,
-                TextStyle::new(14.0, dark::WARNING).params(),
-            );
-        }
-    }
-    y += 20.0;
 
     use crate::state::creatures::Good;
     let farm_stock: f32 = session

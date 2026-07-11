@@ -21,17 +21,6 @@ pub fn consumption_per_min(session: &GameSession, data: &GameData) -> f32 {
         .sum()
 }
 
-/// Seconds until the stockpile empties at current net drain; `None` when
-/// the balance is non-negative.
-pub fn time_to_empty_sec(food: f32, production: f32, consumption: f32) -> Option<f32> {
-    let net = consumption - production;
-    if net <= 0.0 {
-        None
-    } else {
-        Some(food / net * 60.0)
-    }
-}
-
 /// Drain the stockpile by total upkeep and update every creature's
 /// satiation. Returns creatures that deserted this tick (already removed).
 ///
@@ -178,13 +167,5 @@ mod tests {
         }
         assert!(session.creatures.iter().all(|c| c.work_speed() == 1.0));
         assert!(session.creatures.iter().all(|c| c.starving_for == 0.0));
-    }
-
-    #[test]
-    fn time_to_empty_matches_net_drain() {
-        assert_eq!(time_to_empty_sec(10.0, 5.0, 5.0), None);
-        assert_eq!(time_to_empty_sec(10.0, 6.0, 5.0), None);
-        let t = time_to_empty_sec(10.0, 0.0, 6.0).unwrap();
-        assert!((t - 100.0).abs() < 1e-4);
     }
 }

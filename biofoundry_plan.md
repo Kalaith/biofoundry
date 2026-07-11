@@ -1,5 +1,9 @@
 # BIOFOUNDRY — Game Plan
 
+*Historical pre-production document — all phases are complete. For the design
+of the game as actually implemented (including its genre positioning as a
+colony sim / automation hybrid), see [`game_design.md`](game_design.md).*
+
 *Derived from `new_gdd_notes.md` (2026-07-10). Working title: **Biofoundry** (single word, works as crate/package name `biofoundry`, env prefix `BIOFOUNDRY`). Alternatives from the notes: Monsterworks, The Hungry Forge, Goblin Warren — note `monsterhall/` and `monstron/` already exist in this workspace, so avoid "monster*" names.*
 
 ---
