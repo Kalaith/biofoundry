@@ -10,11 +10,16 @@ use std::collections::HashMap;
 /// smelters hold Ore and Charcoal for the salamander.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Building {
-    /// Id into `buildings.json` ("farm", "cook_pot", "kiln", "smelter",
-    /// "stockpile").
+    /// Id into `buildings.json` ("farm", "cook_pot", "mine", "kiln",
+    /// "smelter", "stockpile").
     pub kind: String,
     pub pos: TilePos,
     pub stocks: HashMap<Good, f32>,
+    /// Extractable deposit remaining, for reserve-bearing workstations
+    /// (the Mine). Zero for everything else. `#[serde(default)]` keeps
+    /// pre-Phase-6 saves loading.
+    #[serde(default)]
+    pub reserve: f32,
 }
 
 impl Building {
@@ -23,7 +28,15 @@ impl Building {
             kind: kind.to_owned(),
             pos,
             stocks: HashMap::new(),
+            reserve: 0.0,
         }
+    }
+
+    /// A Mine with a starting deposit; carriers drain its ore buffer.
+    pub fn mine(pos: TilePos, reserve: f32) -> Self {
+        let mut b = Self::new("mine", pos);
+        b.reserve = reserve;
+        b
     }
 
     pub fn stock(&self, good: Good) -> f32 {

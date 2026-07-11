@@ -42,12 +42,10 @@ pub enum Good {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Task {
     Idle,
-    /// Walking to stand next to this ore vein, then mine it.
+    /// Walking to a Mine building to claim a slot.
     GoMine(TilePos),
-    Mining {
-        vein: TilePos,
-        remaining: f32,
-    },
+    /// Stationed at a Mine, extracting ore into its buffer.
+    WorkMine(TilePos),
     /// Walking to stand next to a designated rock tile, then carve it.
     GoDig(TilePos),
     Digging {

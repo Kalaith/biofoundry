@@ -116,7 +116,7 @@ impl GameSession {
         let mut rng = SeededRng::new(seed);
         let world = WorldMap::generate(config.world_width, config.world_height, &mut rng);
 
-        let buildings = starting_buildings(&world, balance.farm_min_distance);
+        let buildings = starting_buildings(&world, balance);
         let patch_regrow = world
             .tiles
             .iter_with_pos()
@@ -237,6 +237,25 @@ impl GameSession {
             && self.site_at(pos).is_none()
     }
 
+    /// Placement rules for a specific building kind. The Mine additionally
+    /// demands an adjacent ore vein to exploit (plan §3).
+    pub fn can_place_kind(&self, kind: &str, pos: TilePos) -> bool {
+        if !self.can_place_building(pos) {
+            return false;
+        }
+        if kind == "mine" {
+            return self.adjacent_ore_vein(pos).is_some();
+        }
+        true
+    }
+
+    /// A 4-neighbour ore-vein tile of `pos`, if any (Mine placement).
+    pub fn adjacent_ore_vein(&self, pos: TilePos) -> Option<TilePos> {
+        pos.neighbors_4way()
+            .into_iter()
+            .find(|n| self.world.tiles.get(*n) == Some(&Tile::OreVein))
+    }
+
     /// Toggle a dig designation on rock (plain or ore vein).
     pub fn toggle_dig_mark(&mut self, pos: TilePos) -> bool {
         let diggable = self
@@ -300,10 +319,12 @@ impl GameSession {
     }
 }
 
-/// Pre-place the starting farm, cook pot, and stockpile on reachable open
-/// floor. The pot sits next to spawn; the farm sits a real haul away (that
-/// walk is what makes carrier throughput a meaningful number).
-fn starting_buildings(world: &WorldMap, farm_min_distance: i32) -> Vec<Building> {
+/// Pre-place the starting stockpile, cook pot, farm, and a working Mine on
+/// reachable open floor. The pot sits next to spawn; the farm sits a real
+/// haul away (that walk is what makes carrier throughput a meaningful
+/// number); the Mine sits on the nearest vein-adjacent floor so extraction
+/// → haul → stockpile is alive at second zero (plan §3).
+fn starting_buildings(world: &WorldMap, balance: &Balance) -> Vec<Building> {
     let spawn = world.spawn;
     let reachable = world
         .tiles
@@ -319,17 +340,31 @@ fn starting_buildings(world: &WorldMap, farm_min_distance: i32) -> Vec<Building>
     let cook_pot = floors_by_distance.first().copied().unwrap_or(spawn);
     let farm = floors_by_distance
         .iter()
-        .find(|p| p.manhattan_distance(&spawn) >= farm_min_distance && **p != cook_pot)
+        .find(|p| p.manhattan_distance(&spawn) >= balance.farm_min_distance && **p != cook_pot)
         .copied()
         // Fall back to the farthest reachable floor on cramped maps.
         .or_else(|| floors_by_distance.last().copied())
         .unwrap_or(spawn);
 
-    vec![
+    let mut buildings = vec![
         Building::new("stockpile", spawn),
         Building::new("cook_pot", cook_pot),
         Building::new("farm", farm),
-    ]
+    ];
+
+    // The prebuilt Mine: nearest reachable floor beside an ore vein, so the
+    // extraction loop is already ticking beside the warren.
+    if let Some(mine) = floors_by_distance.iter().copied().find(|p| {
+        *p != cook_pot
+            && *p != farm
+            && p.neighbors_4way()
+                .iter()
+                .any(|n| world.tiles.get(*n) == Some(&Tile::OreVein))
+    }) {
+        buildings.push(Building::mine(mine, balance.mine_reserve));
+    }
+
+    buildings
 }
 
 #[cfg(test)]
@@ -358,7 +393,8 @@ mod tests {
         let data = GameData::load().unwrap();
         let session = GameSession::new(&data, data.config.world_seed);
 
-        assert_eq!(session.buildings.len(), 3);
+        // Stockpile, cook pot, farm, and the prebuilt mine.
+        assert_eq!(session.buildings.len(), 4);
         for building in &session.buildings {
             assert!(
                 session.world.tiles.get(building.pos).unwrap().walkable(),
@@ -368,6 +404,11 @@ mod tests {
             );
             assert!(data.buildings.get(&building.kind).is_some());
         }
+
+        // The prebuilt mine sits beside a vein and carries a full deposit.
+        let mine = session.buildings_of("mine").next().expect("prebuilt mine");
+        assert!(session.adjacent_ore_vein(mine.pos).is_some());
+        assert!((mine.reserve - data.balance.mine_reserve).abs() < 1e-3);
     }
 
     #[test]

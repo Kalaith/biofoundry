@@ -64,10 +64,14 @@ set:
   primary crisis-response lever: shifting miners into carriers before the
   famine is the game's first learned skill.
 - **Designate digs** — Dig mode toggles designations on rock; miners carve the
-  tunnels (and the ore veins inside them) on their own time.
+  tunnels (uncovering the ore veins inside) on their own time. Digging is the
+  *expansion* verb — it exposes veins; **Mines** exploit them.
 - **Place buildings** — Build mode drops a ghost; carriers haul banked ore to
   the site; it becomes real when supplied. Placement is the layout game:
-  farms near the cook pot mean shorter hauls and faster stew.
+  farms near the cook pot mean shorter hauls and faster stew. The **Mine** is
+  the first *workstation* — it may only be placed on floor beside an ore vein.
+- **Inspect** — clicking a building opens a panel: for a Mine, its miners /
+  ore-per-minute / buffer / remaining deposit at a glance.
 - **Attract specialists** — spend banked ore to attract a Beetle Hauler
   (25 ore) or a Salamander Smelter (20 ore).
 - **Inspect** — click creatures/buildings for status.
@@ -120,9 +124,10 @@ All species live in `assets/data/species.json`.
 | Wild Beetle | — | — | — | Wanders in from the map edge (every ~100 s, max 2 loose). Capturable in snare traps. |
 | Gnarl Raider | your stockpile | — | — | Raid antagonist: beelines for the larder and eats 30 food/min until driven off or sated (flees after 12). |
 
-Jobs (goblins only): **Miner** (digs designations, mines ore veins — 14 ore
-per vein, 8 s per mining op), **Carrier** (hauls mushrooms, wood, charcoal,
-ore, and building materials), **Cook** (runs the pot), **Guard** (8 DPS,
+Jobs (goblins only): **Miner** (claims a slot at a Mine and extracts ore into
+its buffer; also carves dig designations to expand the warren), **Carrier**
+(hauls mushrooms, mine ore, wood, charcoal, and building materials), **Cook**
+(runs the pot), **Guard** (8 DPS,
 patrols the stockpile, intercepts raiders; fed creatures regenerate HP —
 starving guards lose fights), **Idle** (reserve pool, half upkeep).
 
@@ -134,6 +139,7 @@ deliver materials. From `assets/data/buildings.json`:
 | Building | Ore | Purpose |
 | --- | --- | --- |
 | Mushroom Farm | 10 | Grows mushrooms (food chain input). |
+| Ore Mine | 12 | *Workstation.* Placed beside an ore vein; a stationed miner extracts ore into a local buffer that carriers drain to the stockpile. Finite (but generous) deposit. |
 | Cook Pot | 8 | Mushrooms → stew (the calorie multiplier). |
 | Charcoal Kiln | 12 | Sporewood → charcoal, 3/min (wood cap 8). |
 | Smelter Den | 15 | Salamander workstation: 1 ore + 1 charcoal → 1 metal per 10 s batch. |
@@ -147,9 +153,12 @@ The three chains, each of which **eats**:
 
 1. **Food (the grid):** farm grows mushrooms → carriers haul → cook pot makes
    stew → stockpile → every stomach in the warren.
-2. **Ore (construction & goals):** miners carve designations and veins →
-   carriers deliver ore → banked ore pays for buildings and attracting
-   specialists.
+2. **Ore (construction & goals):** a stationed miner works the **Mine** (a
+   placed workstation beside a vein), extracting ore into the mine's local
+   buffer → carriers drain the buffer to the stockpile → banked ore pays for
+   buildings and attracting specialists. Extraction runs itself: place a mine,
+   a goblin claims a slot, ore flows — the first live automation loop. Digging
+   stays the expansion verb that opens fresh veins to mine.
 3. **Metal (the diet chain):** sporewood groves (regrow ~45 s) → carriers haul
    wood → kiln smoulders charcoal → salamander eats the charcoal *as its
    smelting fuel* → metal. Industry depends on forestry depends on hauling
@@ -230,8 +239,8 @@ Repo-standard architecture; see `README.md` and `docs/`:
   `species.json`, `buildings.json`, `unlocks.json`, `tutorial.json`,
   `game_config.json`) — edit the JSON, not Rust constants.
 - UI is a pure view layer emitting `UiAction` intents; a dispatcher applies
-  them. Headless capture scenes (`menu`, `warren`, `factory`, `famine`,
-  `raid`, `breeding`, …) verify the UI without interactive input.
+  them. Headless capture scenes (`menu`, `warren`, `mine`, `factory`,
+  `famine`, `raid`, `breeding`, …) verify the UI without interactive input.
 - Full save/load of the live sim (F5/F9, toolkit persistence).
 
 ## 12. Backlog / future directions

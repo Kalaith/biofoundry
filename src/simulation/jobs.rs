@@ -12,18 +12,40 @@ use crate::state::structures::Building;
 use crate::state::world::Tile;
 use crate::state::GameSession;
 use macroquad_toolkit::grid::TilePos;
+use std::collections::HashMap;
+
+/// Live count of miners claiming each Mine (walking to or working it), so
+/// staffing respects the workstation's slot limit even though the creature
+/// list is taken out of the session during the tick.
+type MineClaims = HashMap<TilePos, u32>;
 
 pub fn tick_creatures(session: &mut GameSession, data: &GameData, dt: f32) {
     // Take the creature list out so each creature can mutate the rest of
     // the session (economy, veins, patches, tiles) without aliasing.
     let mut creatures = std::mem::take(&mut session.creatures);
+
+    // Snapshot Mine slot claims from current tasks; miners deciding this
+    // tick read and update it so they spread across open slots.
+    let mut claims: MineClaims = HashMap::new();
+    for c in &creatures {
+        if let Task::GoMine(p) | Task::WorkMine(p) = &c.task {
+            *claims.entry(*p).or_insert(0) += 1;
+        }
+    }
+
     for creature in &mut creatures {
-        tick_creature(creature, session, data, dt);
+        tick_creature(creature, session, data, dt, &mut claims);
     }
     session.creatures = creatures;
 }
 
-fn tick_creature(creature: &mut Creature, session: &mut GameSession, data: &GameData, dt: f32) {
+fn tick_creature(
+    creature: &mut Creature,
+    session: &mut GameSession,
+    data: &GameData,
+    dt: f32,
+    claims: &mut MineClaims,
+) {
     let Some(species) = data.species.get(&creature.species).cloned() else {
         return;
     };
@@ -39,7 +61,7 @@ fn tick_creature(creature: &mut Creature, session: &mut GameSession, data: &Game
                 creature.clear_task();
             }
         }
-        Job::Miner => tick_miner(creature, session, data, dt),
+        Job::Miner => tick_miner(creature, session, data, dt, claims),
         Job::Carrier => tick_carrier(creature, session, data, &species, dt),
         Job::Cook => tick_cook(creature, session, data, dt),
         Job::Guard => tick_guard(creature, session, data, dt),
@@ -61,56 +83,59 @@ fn walk(creature: &mut Creature, species: &SpeciesDef, dt: f32) {
 
 // ---------------------------------------------------------------- miners
 
-fn tick_miner(creature: &mut Creature, session: &mut GameSession, data: &GameData, dt: f32) {
+fn tick_miner(
+    creature: &mut Creature,
+    session: &mut GameSession,
+    data: &GameData,
+    dt: f32,
+    claims: &mut MineClaims,
+) {
     match creature.task.clone() {
-        Task::Idle => {
-            if creature.carried(Good::Ore) > 0 {
-                send_to(creature, session, session.stockpile_pos(), Task::DeliverOre);
-                return;
-            }
-            // Player dig designations first, then ore veins.
-            if let Some((mark, stand)) = nearest_dig_mark(creature, session) {
-                if set_path(creature, session, stand) {
-                    creature.task = Task::GoDig(mark);
-                    return;
-                }
-            }
-            if let Some((vein, stand)) = nearest_minable_vein(creature, session) {
-                if set_path(creature, session, stand) {
-                    creature.task = Task::GoMine(vein);
-                }
-            }
-        }
-        Task::GoMine(vein) => {
-            let adjacent = creature.tile().manhattan_distance(&vein) == 1;
-            if adjacent && session.vein_ore.get(&vein).is_some_and(|ore| *ore > 0) {
-                creature.task = Task::Mining {
-                    vein,
-                    remaining: data.balance.mine_time_sec,
-                };
+        Task::Idle => decide_miner(creature, session, data, claims),
+        Task::GoMine(mine) => {
+            // Arrived at the Mine tile: take the post if it's still valid.
+            let ready = creature.tile() == mine
+                && session
+                    .building_at(mine)
+                    .is_some_and(|b| b.kind == "mine" && b.reserve > 0.0);
+            if ready {
+                creature.task = Task::WorkMine(mine);
             } else {
+                release_mine(claims, mine);
                 creature.task = Task::Idle;
             }
         }
-        Task::Mining { vein, remaining } => {
-            let left = remaining - dt * creature.work_speed();
-            if left > 0.0 {
-                creature.task = Task::Mining {
-                    vein,
-                    remaining: left,
-                };
+        Task::WorkMine(mine) => {
+            // Yield the post to expansion digging (finite, player-directed).
+            if nearest_dig_mark(creature, session).is_some() {
+                release_mine(claims, mine);
+                creature.task = Task::Idle;
                 return;
             }
-            if let Some(ore) = session.vein_ore.get_mut(&vein) {
-                *ore = ore.saturating_sub(1);
-                creature.add_carried(Good::Ore, 1);
-                if *ore == 0 {
-                    // Mined-out veins open into floor, expanding the cave.
-                    session.vein_ore.remove(&vein);
-                    session.world.tiles.set(vein, Tile::Floor);
-                }
+            let cap = data.balance.mine_buffer_cap;
+            let rate = data.balance.mine_ore_per_min;
+            let Some(b) = session.building_at_mut(mine) else {
+                release_mine(claims, mine);
+                creature.task = Task::Idle;
+                return;
+            };
+            if b.kind != "mine" || b.reserve <= 0.0 {
+                release_mine(claims, mine);
+                creature.task = Task::Idle;
+                return;
             }
-            send_to(creature, session, session.stockpile_pos(), Task::DeliverOre);
+            // Extract into the local buffer, drawing down the deposit. A
+            // full buffer stalls the miner in place (output backed up) —
+            // it resumes when carriers drain it.
+            let headroom = (cap - b.stock(Good::Ore)).max(0.0);
+            let amount = (rate / 60.0 * dt * creature.work_speed())
+                .min(b.reserve)
+                .min(headroom);
+            if amount > 0.0 {
+                b.reserve -= amount;
+                b.add_stock(Good::Ore, amount);
+            }
+            // Stay stationed (task unchanged).
         }
         Task::GoDig(mark) => {
             let adjacent = creature.tile().manhattan_distance(&mark) == 1;
@@ -152,6 +177,70 @@ fn tick_miner(creature: &mut Creature, session: &mut GameSession, data: &GameDat
     }
 }
 
+/// An idle miner banks any salvaged ore, answers dig designations, then
+/// claims the nearest open Mine slot.
+fn decide_miner(
+    creature: &mut Creature,
+    session: &mut GameSession,
+    data: &GameData,
+    claims: &mut MineClaims,
+) {
+    if creature.carried(Good::Ore) > 0 {
+        send_to(creature, session, session.stockpile_pos(), Task::DeliverOre);
+        return;
+    }
+    // Expansion digging first: it's finite and player-directed.
+    if let Some((mark, stand)) = nearest_dig_mark(creature, session) {
+        if set_path(creature, session, stand) {
+            creature.task = Task::GoDig(mark);
+            return;
+        }
+    }
+    if let Some(mine) = nearest_open_mine(creature, session, data, claims) {
+        if creature.tile() == mine || set_path(creature, session, mine) {
+            *claims.entry(mine).or_insert(0) += 1;
+            creature.task = Task::GoMine(mine);
+            return;
+        }
+    }
+    creature.task = Task::Idle;
+}
+
+/// Release one slot claim on a Mine (miner left the post).
+fn release_mine(claims: &mut MineClaims, mine: TilePos) {
+    if let Some(count) = claims.get_mut(&mine) {
+        *count = count.saturating_sub(1);
+    }
+}
+
+/// Nearest Mine with a free slot and ore left in the deposit, reachable
+/// from the miner's tile.
+fn nearest_open_mine(
+    creature: &Creature,
+    session: &GameSession,
+    data: &GameData,
+    claims: &MineClaims,
+) -> Option<TilePos> {
+    let slots = data
+        .buildings
+        .get("mine")
+        .and_then(|d| d.workstation.as_ref())
+        .map(|w| w.slots)
+        .unwrap_or(0);
+    let from = creature.tile();
+    let mut mines: Vec<TilePos> = session
+        .buildings_of("mine")
+        .filter(|b| b.reserve > 0.0)
+        .filter(|b| claims.get(&b.pos).copied().unwrap_or(0) < slots)
+        .map(|b| b.pos)
+        .collect();
+    mines.sort_by_key(|p| (p.manhattan_distance(&from), p.x, p.y));
+    mines
+        .into_iter()
+        .take(6)
+        .find(|p| from == *p || nav::find_path(session, from, *p).is_some())
+}
+
 // -------------------------------------------------------------- carriers
 
 fn tick_carrier(
@@ -183,11 +272,16 @@ fn tick_carrier(
                 return;
             }
             harvest_source(creature, session, data, species, source);
-            creature.task = Task::Idle;
+            // Ore only comes from Mines; it always banks at the stockpile.
+            if creature.carried(Good::Ore) > 0 {
+                send_to(creature, session, session.stockpile_pos(), Task::DeliverOre);
+            } else {
+                creature.task = Task::Idle;
+            }
         }
         Task::DeliverTo(pos) => {
             if creature.tile() == pos {
-                drop_load(creature, session, pos);
+                drop_load(creature, session, data, pos);
             }
             creature.task = Task::Idle;
         }
@@ -213,6 +307,14 @@ fn tick_carrier(
                 .min(wanted);
             session.economy.ore_stock -= take;
             creature.add_carried(Good::Ore, take);
+            creature.task = Task::Idle;
+        }
+        Task::DeliverOre => {
+            if creature.tile() == session.stockpile_pos() {
+                let n = creature.take_carried(Good::Ore, u32::MAX);
+                session.economy.ore_stock += n;
+                session.economy.ore_delivered_total += n;
+            }
             creature.task = Task::Idle;
         }
         _ => creature.task = Task::Idle,
@@ -257,13 +359,37 @@ fn choose_carrier_work(
         return;
     }
 
-    // 2. Pick a chain by need.
-    let food_low = session.economy.food < data.balance.carrier_food_reserve;
-    if food_low {
-        if try_food_chain(creature, session) || try_industry_chain(creature, session, data) {
+    // 2. Priorities by the state of the larder (the load-shedding rule of
+    //    the food grid, in three tiers):
+    //    - crisis (below the reserve): forage everything for food, shed
+    //      industry entirely;
+    //    - building (reserve→comfortable): push food up from the near farm
+    //      first, run finite industry, only trickle-drain the mine;
+    //    - surplus (comfortable and up): the larder is safe, so bank mine
+    //      ore ahead of hauling still more food.
+    //    Wild patches are scattered and slow — always the last resort.
+    let food = session.economy.food;
+    let bal = &data.balance;
+    if food < bal.carrier_food_reserve {
+        if try_farm_haul(creature, session)
+            || try_patch_forage(creature, session)
+            || try_industry_chain(creature, session, data)
+        {
             return;
         }
-    } else if try_industry_chain(creature, session, data) || try_food_chain(creature, session) {
+    } else if food < bal.carrier_food_comfortable {
+        if try_industry_chain(creature, session, data)
+            || try_farm_haul(creature, session)
+            || try_mine_drain(creature, session)
+            || try_patch_forage(creature, session)
+        {
+            return;
+        }
+    } else if try_industry_chain(creature, session, data)
+        || try_mine_drain(creature, session)
+        || try_farm_haul(creature, session)
+        || try_patch_forage(creature, session)
+    {
         return;
     }
 
@@ -275,9 +401,18 @@ fn choose_carrier_work(
     }
 }
 
-/// Mushrooms → pots. Returns true when a task was started.
-fn try_food_chain(creature: &mut Creature, session: &mut GameSession) -> bool {
-    for source in mushroom_sources_nearest_first(creature, session) {
+/// Haul from a stocked Farm to a pot. The farm is the reliable near source;
+/// on its own it out-produces upkeep, so this is the backbone of the food
+/// chain. Returns true when a task was started.
+fn try_farm_haul(creature: &mut Creature, session: &mut GameSession) -> bool {
+    let from = creature.tile();
+    let mut farms: Vec<TilePos> = session
+        .buildings_of("farm")
+        .filter(|b| b.stock(Good::Mushroom) >= 1.0)
+        .map(|b| b.pos)
+        .collect();
+    farms.sort_by_key(|p| (p.manhattan_distance(&from), p.x, p.y));
+    for source in farms {
         if set_path(creature, session, source) {
             creature.task = Task::GoFetch(source);
             return true;
@@ -286,8 +421,43 @@ fn try_food_chain(creature: &mut Creature, session: &mut GameSession) -> bool {
     false
 }
 
-/// Construction ore, smelter supply, charcoal, and wood runs. Returns
-/// true when a task was started.
+/// Forage a grown wild mushroom patch. Scattered and slow — the crisis
+/// reserve the warren leans on only when the larder dips. Returns true
+/// when a task was started.
+fn try_patch_forage(creature: &mut Creature, session: &mut GameSession) -> bool {
+    let from = creature.tile();
+    let mut patches: Vec<TilePos> = session
+        .patch_regrow
+        .iter()
+        .filter(|(_, regrow)| **regrow <= 0.0)
+        .map(|(pos, _)| *pos)
+        .collect();
+    patches.sort_by_key(|p| (p.manhattan_distance(&from), p.x, p.y));
+    for source in patches {
+        if set_path(creature, session, source) {
+            creature.task = Task::GoFetch(source);
+            return true;
+        }
+    }
+    false
+}
+
+/// Drain a Mine's ore buffer back to the stockpile. Returns true when a
+/// task was started.
+fn try_mine_drain(creature: &mut Creature, session: &mut GameSession) -> bool {
+    if let Some(mine) =
+        nearest_building_where(creature, session, "mine", |b| b.stock(Good::Ore) >= 1.0)
+    {
+        if set_path(creature, session, mine) {
+            creature.task = Task::GoFetch(mine);
+            return true;
+        }
+    }
+    false
+}
+
+/// Construction ore, smelter supply, charcoal, and wood runs — the
+/// *finite* industry sinks. Returns true when a task was started.
 fn try_industry_chain(creature: &mut Creature, session: &mut GameSession, data: &GameData) -> bool {
     // Ore runs: build sites and hungry smelters, from the bank.
     if session.economy.ore_stock > 0 && ore_wanted(session, data) > 0 {
@@ -378,6 +548,7 @@ fn fetchable_good(session: &GameSession, source: TilePos) -> Option<Good> {
     if let Some(building) = session.building_at(source) {
         return match building.kind.as_str() {
             "farm" if building.stock(Good::Mushroom) >= 1.0 => Some(Good::Mushroom),
+            "mine" if building.stock(Good::Ore) >= 1.0 => Some(Good::Ore),
             "kiln" if building.stock(Good::Charcoal) >= 1.0 => Some(Good::Charcoal),
             _ => None,
         };
@@ -433,12 +604,12 @@ fn harvest_source(
 }
 
 /// Deposit the load at a building or build site.
-fn drop_load(creature: &mut Creature, session: &mut GameSession, pos: TilePos) {
+fn drop_load(creature: &mut Creature, session: &mut GameSession, data: &GameData, pos: TilePos) {
     // Build sites take ore.
     if let Some(site) = session.build_sites.iter_mut().find(|s| s.pos == pos) {
         let deliver = creature.take_carried(Good::Ore, site.remaining());
         site.ore_delivered += deliver;
-        complete_finished_sites(session);
+        complete_finished_sites(session, data);
         return;
     }
     let Some(building) = session.buildings.iter_mut().find(|b| b.pos == pos) else {
@@ -464,12 +635,17 @@ fn drop_load(creature: &mut Creature, session: &mut GameSession, pos: TilePos) {
 }
 
 /// Turn fully-supplied ghosts into working buildings.
-fn complete_finished_sites(session: &mut GameSession) {
+fn complete_finished_sites(session: &mut GameSession, data: &GameData) {
     let mut i = 0;
     while i < session.build_sites.len() {
         if session.build_sites[i].complete() {
             let site = session.build_sites.remove(i);
-            session.buildings.push(Building::new(&site.kind, site.pos));
+            let building = if site.kind == "mine" {
+                Building::mine(site.pos, data.balance.mine_reserve)
+            } else {
+                Building::new(&site.kind, site.pos)
+            };
+            session.buildings.push(building);
         } else {
             i += 1;
         }
@@ -619,10 +795,23 @@ fn tick_smelter(creature: &mut Creature, session: &mut GameSession, data: &GameD
                 }
                 return;
             }
-            // No work: wait at the nearest den.
+            // No batch ready: wait at the nearest den, and keep the furnace
+            // warm on the den's own charcoal so a passing ore drought never
+            // starves the living smelter (there's always spare fuel piling
+            // up from the kiln — the ore is the scarce input, not the meal).
             if let Some(den) = nearest_building(creature, session, "smelter") {
                 if creature.tile() != den {
                     send_to(creature, session, den, Task::GoSmelt(den));
+                } else if creature.satiation < 1.0 {
+                    let drain = b.salamander_hunger_drain_sec;
+                    if let Some(building) = session.building_at_mut(den) {
+                        if building.stock(Good::Charcoal) > 0.0 {
+                            let bite = (dt / drain).min(building.stock(Good::Charcoal));
+                            building.take_stock(Good::Charcoal, bite);
+                            creature.satiation = (creature.satiation + dt / drain).min(1.0);
+                            creature.starving_for = 0.0;
+                        }
+                    }
                 }
             }
         }
@@ -668,25 +857,6 @@ fn reachable_stand(creature: &Creature, session: &GameSession, target: TilePos) 
     nav::reachable_stand(session, creature.tile(), target)
 }
 
-/// Nearest vein with ore left, together with a reachable stand tile.
-fn nearest_minable_vein(creature: &Creature, session: &GameSession) -> Option<(TilePos, TilePos)> {
-    let from = creature.tile();
-    let mut veins: Vec<TilePos> = session
-        .vein_ore
-        .iter()
-        .filter(|(_, ore)| **ore > 0)
-        .map(|(pos, _)| *pos)
-        .collect();
-    veins.sort_by_key(|p| (p.manhattan_distance(&from), p.x, p.y));
-
-    for vein in veins.into_iter().take(8) {
-        if let Some(stand) = reachable_stand(creature, session, vein) {
-            return Some((vein, stand));
-        }
-    }
-    None
-}
-
 /// Nearest player dig designation with a reachable stand tile.
 fn nearest_dig_mark(creature: &Creature, session: &GameSession) -> Option<(TilePos, TilePos)> {
     let from = creature.tile();
@@ -699,26 +869,6 @@ fn nearest_dig_mark(creature: &Creature, session: &GameSession) -> Option<(TileP
         }
     }
     None
-}
-
-/// Sources currently holding mushrooms — stocked farms and grown wild
-/// patches — nearest first, deterministic tie-break.
-fn mushroom_sources_nearest_first(creature: &Creature, session: &GameSession) -> Vec<TilePos> {
-    let from = creature.tile();
-    let mut sources: Vec<TilePos> = session
-        .patch_regrow
-        .iter()
-        .filter(|(_, regrow)| **regrow <= 0.0)
-        .map(|(pos, _)| *pos)
-        .collect();
-    sources.extend(
-        session
-            .buildings_of("farm")
-            .filter(|b| b.stock(Good::Mushroom) >= 1.0)
-            .map(|b| b.pos),
-    );
-    sources.sort_by_key(|p| (p.manhattan_distance(&from), p.x, p.y));
-    sources
 }
 
 /// Grown sporewood tiles, nearest first.

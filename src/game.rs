@@ -40,6 +40,8 @@ pub struct Game {
     save_exists: bool,
     /// Where the right button went down, to tell a click from a camera drag.
     right_press: Vec2,
+    /// Building tile the player clicked to inspect (first-pass legibility).
+    selected_building: Option<TilePos>,
 }
 
 impl Game {
@@ -67,6 +69,7 @@ impl Game {
             settings_open: false,
             save_exists,
             right_press: vec2(0.0, 0.0),
+            selected_building: None,
         }
     }
 
@@ -108,6 +111,18 @@ impl Game {
                     for _ in 0..900 {
                         simulation::tick(session, &self.data);
                     }
+                }
+            }
+            "mine" => {
+                self.transition(StateTransition::StartWarren);
+                if let GameState::Warren(session) = &mut self.state {
+                    // The prebuilt mine mid-extraction, inspection open.
+                    session.tutorial_dismissed = true;
+                    session.economy.food = 80.0;
+                    for _ in 0..400 {
+                        simulation::tick(session, &self.data);
+                    }
+                    self.selected_building = session.buildings_of("mine").next().map(|b| b.pos);
                 }
             }
             "famine" => {
@@ -367,14 +382,19 @@ impl Game {
                 set_default_camera();
 
                 let virtual_ui = begin_virtual_ui_frame(ui::LOGICAL_WIDTH, ui::LOGICAL_HEIGHT);
-                let frame = ui::hud::draw(session, &self.data, &virtual_ui, &self.mode);
+                let frame = ui::hud::draw(
+                    session,
+                    &self.data,
+                    &virtual_ui,
+                    &self.mode,
+                    self.selected_building,
+                );
                 end_virtual_ui_frame();
 
                 let mut actions = frame.actions;
-                if !frame.pointer_over_ui
-                    && self.mode != UiMode::Inspect
-                    && is_mouse_button_released(MouseButton::Left)
-                {
+                // Left-click routes to the world in every mode: tools act,
+                // Inspect selects the building under the cursor.
+                if !frame.pointer_over_ui && is_mouse_button_released(MouseButton::Left) {
                     if let Some(tile) = hover {
                         actions.push(UiAction::WorldClick(tile));
                     }
@@ -482,6 +502,17 @@ impl Game {
 
     fn world_click(&mut self, tile: TilePos) {
         let mode = self.mode.clone();
+        if mode == UiMode::Inspect {
+            // Toggle-select the building under the cursor for inspection.
+            let on_building =
+                matches!(&self.state, GameState::Warren(s) if s.building_at(tile).is_some());
+            self.selected_building = if on_building && self.selected_building != Some(tile) {
+                Some(tile)
+            } else {
+                None
+            };
+            return;
+        }
         let GameState::Warren(session) = &mut self.state else {
             return;
         };

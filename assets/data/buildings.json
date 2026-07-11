@@ -7,6 +7,14 @@
     "requires_unlock": null
   },
   {
+    "id": "mine",
+    "name": "Ore Mine",
+    "cost_ore": 12,
+    "buildable": true,
+    "requires_unlock": null,
+    "workstation": { "job": "miner", "slots": 3 }
+  },
+  {
     "id": "cook_pot",
     "name": "Cook Pot",
     "cost_ore": 8,

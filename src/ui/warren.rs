@@ -207,6 +207,43 @@ fn draw_building(session: &GameSession, data: &GameData, building: &Building, ts
                 draw_circle(cx, cy, ts * 0.14, Color::new(0.85, 0.75, 0.55, 1.0));
             }
         }
+        "mine" => {
+            // A dark stone housing with an ore-hued mouth; a pile of dots
+            // shows the local buffer, greyed out once the deposit runs dry.
+            let spent = building.reserve <= 0.0;
+            let frame = if spent {
+                Color::new(0.18, 0.17, 0.18, 1.0)
+            } else {
+                Color::new(0.26, 0.22, 0.16, 1.0)
+            };
+            draw_rectangle(x + 2.0, y + 2.0, ts - 4.0, ts - 4.0, frame);
+            draw_rectangle_lines(
+                x + 2.0,
+                y + 2.0,
+                ts - 4.0,
+                ts - 4.0,
+                2.0,
+                Color::new(0.60, 0.50, 0.32, 0.9),
+            );
+            // Dark shaft mouth.
+            draw_circle(
+                x + ts * 0.5,
+                y + ts * 0.62,
+                ts * 0.16,
+                Color::new(0.08, 0.07, 0.06, 1.0),
+            );
+            let buffered = building.stock(Good::Ore);
+            for i in 0..3 {
+                if buffered >= (i as f32 + 1.0) * (data.balance.mine_buffer_cap / 3.0) {
+                    draw_circle(
+                        x + ts * (0.28 + 0.22 * i as f32),
+                        y + ts * 0.3,
+                        ts * 0.08,
+                        Color::new(0.80, 0.66, 0.36, 1.0),
+                    );
+                }
+            }
+        }
         "kiln" => {
             draw_rectangle(
                 x + 3.0,
@@ -407,8 +444,8 @@ fn draw_tool_ghost(session: &GameSession, ts: f32, mode: &UiMode, hover: Option<
     let x = tile.x as f32 * ts;
     let y = tile.y as f32 * ts;
     match mode {
-        UiMode::Build(_) => {
-            let ok = session.can_place_building(tile);
+        UiMode::Build(kind) => {
+            let ok = session.can_place_kind(kind, tile);
             let color = if ok {
                 Color::new(0.45, 0.9, 0.5, 0.9)
             } else {

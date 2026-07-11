@@ -4,16 +4,23 @@
 
 use crate::data::GameData;
 use crate::simulation::{self, food};
-use crate::state::creatures::Job;
+use crate::state::creatures::{Good, Job, Task};
 use crate::state::GameSession;
 use crate::ui::{HudFrame, UiAction, UiMode, LOGICAL_HEIGHT, LOGICAL_WIDTH};
 use macroquad::prelude::*;
+use macroquad_toolkit::grid::TilePos;
 use macroquad_toolkit::prelude::*;
 use macroquad_toolkit::ui::draw_ui_text_ex;
 
 const PANEL_W: f32 = 252.0;
 
-pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi, mode: &UiMode) -> HudFrame {
+pub fn draw(
+    session: &GameSession,
+    data: &GameData,
+    ui: &VirtualUi,
+    mode: &UiMode,
+    selected: Option<TilePos>,
+) -> HudFrame {
     let mut actions = Vec::new();
     let mouse = ui.mouse_position();
 
@@ -27,6 +34,7 @@ pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi, mode: &UiMod
     draw_jobs_panel(session, data, jobs_panel, mouse, &mut actions);
     draw_tools_panel(session, data, tools_panel, mode, mouse, &mut actions);
     let tutorial_panel = draw_tutorial_panel(session, data, mouse, &mut actions);
+    let inspect_panel = selected.and_then(|pos| draw_inspect_panel(session, data, pos));
 
     let victory_up = session.won && !session.victory_shown;
     let factory_up = session.factory_complete && !session.factory_shown;
@@ -74,6 +82,7 @@ pub fn draw(session: &GameSession, data: &GameData, ui: &VirtualUi, mode: &UiMod
         || factory_up
         || worm_up
         || tutorial_panel.is_some_and(|r| r.contains_point(mouse))
+        || inspect_panel.is_some_and(|r| r.contains_point(mouse))
         || [top_bar, food_panel, jobs_panel, tools_panel]
             .iter()
             .any(|r| r.contains_point(mouse));
@@ -446,6 +455,115 @@ fn draw_tutorial_panel(
         mouse,
     ) {
         actions.push(UiAction::SkipTutorial);
+    }
+
+    Some(panel)
+}
+
+/// First-pass building inspection (plan §Phase 6): what a clicked building
+/// is doing right now. Phase 9 grows this into the full legibility layer.
+/// Returns its rect while a building is selected.
+fn draw_inspect_panel(session: &GameSession, data: &GameData, pos: TilePos) -> Option<Rect> {
+    let building = session.building_at(pos)?;
+    let def = data.buildings.get(&building.kind);
+    let name = def.map(|d| d.name.as_str()).unwrap_or(&building.kind);
+
+    let panel = Rect::new(LOGICAL_WIDTH - 262.0, 210.0, 250.0, 132.0);
+    draw_surface_with_title(
+        panel,
+        Some(name),
+        &panel_style(),
+        TextStyle::new(16.0, dark::TEXT_BRIGHT),
+    );
+
+    let x = panel.x + 14.0;
+    let mut y = panel.y + 50.0;
+    let line = |text: &str, color: Color, y: &mut f32| {
+        draw_ui_text_ex(text, x, *y, TextStyle::new(14.0, color).params());
+        *y += 20.0;
+    };
+
+    match building.kind.as_str() {
+        "mine" => {
+            let staffed = session
+                .creatures
+                .iter()
+                .filter(|c| matches!(&c.task, Task::WorkMine(p) if *p == pos))
+                .count();
+            let slots = def
+                .and_then(|d| d.workstation.as_ref())
+                .map(|w| w.slots)
+                .unwrap_or(0);
+            let rate = data.balance.mine_ore_per_min * staffed as f32;
+            let (worker_txt, worker_col) = if building.reserve <= 0.0 {
+                ("Deposit exhausted".to_owned(), dark::NEGATIVE)
+            } else if staffed == 0 {
+                ("No miner — stopped".to_owned(), dark::WARNING)
+            } else {
+                (format!("Miners {staffed}/{slots}"), dark::POSITIVE)
+            };
+            line(&worker_txt, worker_col, &mut y);
+            line(&format!("Ore  +{rate:.0}/min"), dark::TEXT, &mut y);
+            line(
+                &format!(
+                    "Buffer {:.0}/{:.0}",
+                    building.stock(Good::Ore),
+                    data.balance.mine_buffer_cap
+                ),
+                dark::TEXT,
+                &mut y,
+            );
+            line(
+                &format!("Reserve {:.0}", building.reserve.max(0.0)),
+                dark::TEXT_DIM,
+                &mut y,
+            );
+        }
+        "farm" => {
+            line(
+                &format!(
+                    "Mushrooms {:.0}/{:.0}",
+                    building.stock(Good::Mushroom),
+                    crate::simulation::wildlife::farm_cap(session, data)
+                ),
+                dark::TEXT,
+                &mut y,
+            );
+            line("Carriers haul to the Cook Pot", dark::TEXT_DIM, &mut y);
+        }
+        "cook_pot" => {
+            line(
+                &format!("Mushrooms {:.0}", building.stock(Good::Mushroom)),
+                dark::TEXT,
+                &mut y,
+            );
+            line("Cooks turn mushrooms → stew", dark::TEXT_DIM, &mut y);
+        }
+        "kiln" => {
+            line(
+                &format!(
+                    "Wood {:.0}  Charcoal {:.0}",
+                    building.stock(Good::Wood),
+                    building.stock(Good::Charcoal)
+                ),
+                dark::TEXT,
+                &mut y,
+            );
+        }
+        "smelter" => {
+            line(
+                &format!(
+                    "Ore {:.0}  Charcoal {:.0}",
+                    building.stock(Good::Ore),
+                    building.stock(Good::Charcoal)
+                ),
+                dark::TEXT,
+                &mut y,
+            );
+        }
+        _ => {
+            line("Click empty ground to deselect", dark::TEXT_DIM, &mut y);
+        }
     }
 
     Some(panel)

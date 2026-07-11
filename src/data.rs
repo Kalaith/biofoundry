@@ -63,7 +63,13 @@ pub struct Balance {
     pub farm_min_distance: i32,
     pub patch_regrow_sec: f32,
     pub vein_ore_yield: u32,
-    pub mine_time_sec: f32,
+    /// Ore a single stationed miner extracts into the Mine's buffer.
+    pub mine_ore_per_min: f32,
+    /// Local buffer a Mine holds before it backs up (output-full stall).
+    pub mine_buffer_cap: f32,
+    /// Deposit a freshly built Mine can extract before the vein runs dry —
+    /// generous but finite, so expansion pressure survives (plan §3).
+    pub mine_reserve: f32,
     /// Time for a miner to carve one designated rock tile into floor.
     pub dig_time_sec: f32,
     /// Time to gather a load at the farm or a wild patch.
@@ -96,6 +102,11 @@ pub struct Balance {
     /// Below this food level carriers drop industry hauling and feed the
     /// kitchen first — the load-shedding rule of the food grid.
     pub carrier_food_reserve: f32,
+    /// Above this level the larder is comfortable: carriers switch to
+    /// banking mine ore ahead of hauling still more food, so extraction and
+    /// the kitchen share one carrier pool. Between the reserve and here they
+    /// keep pushing food up first.
+    pub carrier_food_comfortable: f32,
     /// Guards eat more, like cooks (tier-0 table).
     pub guard_upkeep_factor: f32,
     pub guard_dps: f32,
@@ -131,6 +142,16 @@ pub struct Balance {
     pub worm_awaken_at: f32,
 }
 
+/// A staffed workstation: creatures of `job` claim up to `slots` places at
+/// the building and work it on their own (plan §3 — the universal pattern
+/// the Farm already hints at, made explicit for the Mine, Blacksmith, …).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkstationDef {
+    /// Which job claims a slot here ("miner").
+    pub job: String,
+    pub slots: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildingDef {
     pub id: String,
@@ -141,6 +162,9 @@ pub struct BuildingDef {
     pub buildable: bool,
     /// Unlock id (from `unlocks.json`) gating this building, if any.
     pub requires_unlock: Option<String>,
+    /// Staffing, for buildings creatures work at a fixed post.
+    #[serde(default)]
+    pub workstation: Option<WorkstationDef>,
 }
 
 /// A progression unlock: an event counter the player naturally advances,
