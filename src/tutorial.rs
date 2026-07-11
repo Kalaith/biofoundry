@@ -4,7 +4,8 @@
 //! the famine, win. Pure guidance: it reads state and never touches the sim.
 
 use crate::data::{GameData, TutorialDone, TutorialStepDef};
-use crate::simulation;
+use crate::simulation::{self, food};
+use crate::state::creatures::Job;
 use crate::state::GameSession;
 
 /// Frame-side signals the session can't see (camera input lives in `Game`).
@@ -31,7 +32,7 @@ pub fn progress(session: &GameSession, data: &GameData) -> (usize, usize) {
 pub fn advance(session: &mut GameSession, data: &GameData, inputs: TutorialInputs) -> bool {
     let mut advanced = false;
     while let Some(step) = current_step(session, data) {
-        if !step_done(&step.done, session, inputs) {
+        if !step_done(&step.done, session, data, inputs) {
             break;
         }
         session.tutorial_step += 1;
@@ -40,15 +41,25 @@ pub fn advance(session: &mut GameSession, data: &GameData, inputs: TutorialInput
     advanced
 }
 
-fn step_done(done: &TutorialDone, session: &GameSession, inputs: TutorialInputs) -> bool {
+fn step_done(
+    done: &TutorialDone,
+    session: &GameSession,
+    data: &GameData,
+    inputs: TutorialInputs,
+) -> bool {
     let sim_time = simulation::sim_seconds(session);
     match done {
         TutorialDone::CameraMoved => inputs.camera_moved,
         TutorialDone::AnyReassign => session.tutorial_reassigned,
-        // "Famine weathered": past the first-crisis window with the larder
-        // healthy again — whether the player dodged it or dug out of it.
+        // The player has answered the famine: either they responded early
+        // (extra carriers and a positive calorie balance), or they're past
+        // the first-crisis window with the larder healthy again.
         TutorialDone::FamineRecovered { value } => {
-            sim_time >= 330.0 && session.economy.food >= *value && !session.famine_active
+            let responded = session.job_count(Job::Carrier) > data.balance.start_carriers as usize
+                && session.economy.production_ema_per_min
+                    > food::consumption_per_min(session, data);
+            responded
+                || (sim_time >= 330.0 && session.economy.food >= *value && !session.famine_active)
         }
         TutorialDone::SitePlaced => session.tutorial_built,
         TutorialDone::Won => session.won,
@@ -102,10 +113,11 @@ mod tests {
         assert!(advance(&mut session, &data, none));
         assert_eq!(current_step(&session, &data).unwrap().id, "famine");
 
-        // Famine step: needs the crisis window past and food healthy.
-        session.economy.food = 50.0;
-        assert!(!advance(&mut session, &data, none), "too early to count");
-        session.tick = (400.0 / simulation::SIM_DT) as u64;
+        // Famine step clears early once the player has responded: carriers
+        // above the starting crew (the reassign above did that) and a
+        // positive calorie balance.
+        assert!(!advance(&mut session, &data, none), "net is still negative");
+        session.economy.production_ema_per_min = 999.0;
         assert!(advance(&mut session, &data, none));
         assert_eq!(current_step(&session, &data).unwrap().id, "goals");
 
@@ -115,6 +127,22 @@ mod tests {
         assert!(current_step(&session, &data).is_none(), "tutorial finished");
         let (done, total) = progress(&session, &data);
         assert_eq!(done, total);
+    }
+
+    #[test]
+    fn famine_step_also_clears_after_recovery() {
+        let (data, mut session) = boot();
+        let none = TutorialInputs::default();
+        session.tutorial_step = 3;
+        assert_eq!(current_step(&session, &data).unwrap().id, "famine");
+
+        // No extra carriers, no production — only riding out the crisis
+        // window with a healthy larder counts.
+        session.economy.food = 50.0;
+        assert!(!advance(&mut session, &data, none), "too early to count");
+        session.tick = (400.0 / simulation::SIM_DT) as u64;
+        assert!(advance(&mut session, &data, none));
+        assert_eq!(current_step(&session, &data).unwrap().id, "goals");
     }
 
     #[test]

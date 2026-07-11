@@ -15,7 +15,9 @@ use macroquad_toolkit::grid::TilePos;
 use macroquad_toolkit::notifications::{
     NotificationAnchor, NotificationManager, NotificationRenderConfig,
 };
-use macroquad_toolkit::persistence::{load_from_slot_with_migration, save_to_slot_with_version};
+use macroquad_toolkit::persistence::{
+    load_from_slot_with_migration, save_to_slot_with_version, slot_exists,
+};
 use macroquad_toolkit::prelude::{begin_virtual_ui_frame, dark, end_virtual_ui_frame, InputState};
 
 pub struct Game {
@@ -32,6 +34,12 @@ pub struct Game {
     famine_announced: bool,
     /// Last frame's camera pose, for the tutorial's "look around" step.
     last_camera: (Vec2, f32),
+    /// The title menu's settings panel is showing.
+    settings_open: bool,
+    /// A save slot exists, so the menu can offer Continue.
+    save_exists: bool,
+    /// Where the right button went down, to tell a click from a camera drag.
+    right_press: Vec2,
 }
 
 impl Game {
@@ -41,7 +49,9 @@ impl Game {
         });
 
         let camera = Camera2D::with_config(vec2(0.0, 0.0), 1.0, camera_config(&data, 1.0));
-        let audio = Audio::load().await;
+        let mut audio = Audio::load().await;
+        audio.load_settings(&data.config.game_name);
+        let save_exists = slot_exists(&data.config.game_name, &data.config.save_slot);
 
         Self {
             data,
@@ -54,6 +64,9 @@ impl Game {
             accumulator: 0.0,
             famine_announced: false,
             last_camera: (vec2(0.0, 0.0), 1.0),
+            settings_open: false,
+            save_exists,
+            right_press: vec2(0.0, 0.0),
         }
     }
 
@@ -304,6 +317,18 @@ impl Game {
                     self.events.push(UiAction::BackToMenu);
                 }
             }
+            // A right-click (not a camera drag) also cancels the tool.
+            if is_mouse_button_pressed(MouseButton::Right) {
+                self.right_press = mouse_position().into();
+            }
+            if is_mouse_button_released(MouseButton::Right)
+                && self.mode != UiMode::Inspect
+                && Vec2::from(mouse_position()).distance(self.right_press) < 8.0
+            {
+                self.mode = UiMode::Inspect;
+            }
+        } else if input.escape_pressed && self.settings_open {
+            self.settings_open = false;
         }
 
         let actions: Vec<UiAction> = self.events.drain().collect();
@@ -318,7 +343,13 @@ impl Game {
         let actions = match &self.state {
             GameState::Menu => {
                 let virtual_ui = begin_virtual_ui_frame(ui::LOGICAL_WIDTH, ui::LOGICAL_HEIGHT);
-                let actions = ui::menu::draw(&self.data, &virtual_ui);
+                let actions = ui::menu::draw(
+                    &self.data,
+                    &virtual_ui,
+                    self.save_exists,
+                    self.settings_open,
+                    self.audio.volume(),
+                );
                 end_virtual_ui_frame();
                 actions
             }
@@ -434,6 +465,18 @@ impl Game {
             UiAction::WorldClick(tile) => self.world_click(tile),
             UiAction::Save => self.save_game(),
             UiAction::Load => self.load_game(),
+            UiAction::ToggleSettings => {
+                self.settings_open = !self.settings_open;
+                self.audio.play(Sfx::Select);
+            }
+            UiAction::AdjustVolume(steps) => {
+                let volume = (self.audio.volume() * 10.0 + steps as f32).round() / 10.0;
+                self.audio.set_volume(volume);
+                self.audio.save_settings(&self.data.config.game_name);
+                // Chirp at the new level so the change is audible.
+                self.audio.play(Sfx::Select);
+            }
+            UiAction::ExitGame => macroquad::miniquad::window::quit(),
         }
     }
 
@@ -479,7 +522,10 @@ impl Game {
             session.as_ref(),
             &config.version,
         ) {
-            Ok(()) => self.notifications.success("Warren saved."),
+            Ok(()) => {
+                self.save_exists = true;
+                self.notifications.success("Warren saved.");
+            }
             Err(err) => self.notifications.danger(format!("Save failed: {err}")),
         }
     }

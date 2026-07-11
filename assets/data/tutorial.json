@@ -20,7 +20,7 @@
   {
     "id": "famine",
     "title": "Weather the famine",
-    "body": "The first famine hits around minute five. Shift Miners into Carriers before the meter empties — hungry workers slow the whole warren.",
+    "body": "The first famine hits around minute five. Shift Miners into Carriers and push Production above Upkeep — hungry workers slow the whole warren.",
     "done": { "kind": "famine_recovered", "value": 30.0 }
   },
   {

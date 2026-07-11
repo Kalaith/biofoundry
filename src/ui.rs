@@ -42,6 +42,11 @@ pub enum UiAction {
     WorldClick(TilePos),
     Save,
     Load,
+    /// Open/close the settings panel on the title menu.
+    ToggleSettings,
+    /// Nudge the sound volume by this many 10% steps.
+    AdjustVolume(i8),
+    ExitGame,
 }
 
 /// One frame of HUD output.

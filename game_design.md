@@ -236,6 +236,10 @@ Repo-standard architecture; see `README.md` and `docs/`:
 
 ## 12. Backlog / future directions
 
+*The early-automation direction (staffed mines, blacksmith/ingots, equipment
+feedback loops) is now planned in detail as phases 6–11 — see
+[`automation_plan.md`](automation_plan.md).*
+
 Deferred from the original plan, in rough order of design interest:
 
 - **Slime Janitor + spoilage/troughs** — waste as a resource sink; troughs as

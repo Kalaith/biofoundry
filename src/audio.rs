@@ -4,6 +4,8 @@
 //! without an audio device (headless capture, muted browsers, etc.).
 
 use macroquad_toolkit::audio::SoundManager;
+use macroquad_toolkit::persistence::{load_json_key, save_json_key};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Sfx {
@@ -74,4 +76,33 @@ impl Audio {
         };
         self.manager.play_sfx(sfx, vol);
     }
+
+    /// Master sound volume, 0.0–1.0 (per-effect trims multiply on top).
+    pub fn volume(&self) -> f32 {
+        self.manager.sfx_volume
+    }
+
+    pub fn set_volume(&mut self, volume: f32) {
+        self.manager.sfx_volume = volume.clamp(0.0, 1.0);
+    }
+
+    /// Apply the persisted volume, if the player saved one.
+    pub fn load_settings(&mut self, game_name: &str) {
+        if let Ok(settings) = load_json_key::<AudioSettings>(game_name, "settings") {
+            self.set_volume(settings.sfx_volume);
+        }
+    }
+
+    pub fn save_settings(&self, game_name: &str) {
+        let settings = AudioSettings {
+            sfx_volume: self.manager.sfx_volume,
+        };
+        let _ = save_json_key(game_name, "settings", &settings);
+    }
+}
+
+/// Player-tunable audio settings, persisted alongside the save slot.
+#[derive(Serialize, Deserialize)]
+struct AudioSettings {
+    sfx_volume: f32,
 }

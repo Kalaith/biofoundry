@@ -168,8 +168,9 @@ pub enum TutorialDone {
     CameraMoved,
     /// The player reassigned any worker.
     AnyReassign,
-    /// A famine has come and gone: food is back above `value` after the
-    /// first-crisis window.
+    /// The player answered the famine: carriers above the starting crew
+    /// with a positive calorie balance, or food back above `value` after
+    /// the first-crisis window.
     FamineRecovered { value: f32 },
     /// The player placed any build site.
     SitePlaced,
