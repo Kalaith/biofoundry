@@ -66,13 +66,22 @@ pub fn tick(session: &mut GameSession, data: &GameData) -> TickReport {
     }
 
     // Workers, then the calorie ledger they drain. Jobs only ever add
-    // food (cook batches), so the delta is this tick's production.
+    // food (cook batches), so the delta is this tick's production. Ore
+    // banked and ingots forged are tracked the same way for the factory
+    // dashboard (the food grid generalized to every chain).
     let food_before = session.economy.food;
+    let ore_before = session.economy.ore_delivered_total;
+    let ingots_before = session.economy.ingots_forged;
     jobs::tick_creatures(session, data, dt);
-    let produced_per_min = ((session.economy.food - food_before) / dt * 60.0).max(0.0);
     let smoothing = dt / 15.0; // ~15s time constant
+    let produced_per_min = ((session.economy.food - food_before) / dt * 60.0).max(0.0);
     session.economy.production_ema_per_min +=
         (produced_per_min - session.economy.production_ema_per_min) * smoothing;
+    let ore_per_min = (session.economy.ore_delivered_total - ore_before) as f32 / dt * 60.0;
+    session.economy.ore_ema_per_min += (ore_per_min - session.economy.ore_ema_per_min) * smoothing;
+    let ingot_per_min = (session.economy.ingots_forged - ingots_before) as f32 / dt * 60.0;
+    session.economy.ingot_ema_per_min +=
+        (ingot_per_min - session.economy.ingot_ema_per_min) * smoothing;
     let wild = wildlife::tick_wildlife(session, data, dt);
     let deserters = food::tick_hunger(session, data, dt);
 

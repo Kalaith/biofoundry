@@ -99,7 +99,9 @@ from the stockpile; the stockpile is fed by the farm → haul → cook chain.
   the power plant, not the farm.
 - **Battery & meter**: the HUD's calorie ledger shows production/min,
   upkeep/min, stockpile, and **time-to-empty** — the Factorio power graph,
-  reskinned.
+  reskinned. The same panel doubles as a **factory dashboard**: ore-to-
+  stockpile/min, ingots-forged/min, and pending-haul pressure (so "add a
+  carrier" is a read, not a guess).
 - **Brownout**: when the stockpile empties, creatures don't die — work speed
   degrades as they starve. Hungry carriers slow the kitchen, which deepens the
   famine: a legible cascade.
@@ -260,6 +262,11 @@ persists in saves.
   sporewood groves, water. Dig designations expand the warren
   Dwarf-Fortress-lite.
 - **Camera**: toolkit pan/zoom (WASD / right-drag / scroll).
+- **Status icons**: a colour-and-shape badge floats over any stalled
+  workstation — no worker (yellow ring), starved (orange ▽), backed up
+  (red ▲), awaiting haul (cyan crate), exhausted (grey ✕). A one-line legend
+  appears while anything is stalled, so a broken chain link is diagnosable at
+  a glance without clicking — the equivalent of Factorio's no-power icon.
 - **Audio**: 7 synthesized SFX WAVs via toolkit `SoundManager` (build, eat,
   raid, victory, …), degrading to silence headless.
 - **Title screen**: worm silhouette, mushroom clusters, drifting spores;

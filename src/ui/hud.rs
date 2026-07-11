@@ -37,6 +37,16 @@ pub fn draw(
     let inspect_panel =
         selected.and_then(|pos| draw_inspect_panel(session, data, pos, mouse, &mut actions));
 
+    // A status-icon legend, shown only while some node is stalled — it
+    // teaches the in-world badges exactly when they matter.
+    if session
+        .buildings
+        .iter()
+        .any(|b| crate::ui::legibility::building_status(session, data, b).is_some())
+    {
+        draw_status_legend();
+    }
+
     let victory_up = session.won && !session.victory_shown;
     let factory_up = session.factory_complete && !session.factory_shown;
     let worm_up = session.worm_awake && !session.worm_shown;
@@ -224,17 +234,15 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
     );
     y += 30.0;
 
-    use crate::state::creatures::Good;
-    let farm_stock: f32 = session
-        .buildings_of("farm")
-        .map(|b| b.stock(Good::Mushroom))
-        .sum();
-    let pot_stock: f32 = session
-        .buildings_of("cook_pot")
-        .map(|b| b.stock(Good::Mushroom))
-        .sum();
+    // Chain throughput + haul pressure: the food grid generalised to a
+    // factory dashboard (plan §Phase 9).
+    let hauls = crate::ui::legibility::pending_hauls(session);
     draw_ui_text_ex(
-        &format!("Farms {farm_stock:.0} shrooms · Pots {pot_stock:.0}"),
+        &format!(
+            "Ore +{:.0}/m · Ingots +{:.0}/m · Hauls {hauls}",
+            session.economy.ore_ema_per_min.max(0.0),
+            session.economy.ingot_ema_per_min.max(0.0),
+        ),
         x,
         y,
         TextStyle::new(14.0, dark::TEXT_DIM).params(),
@@ -697,6 +705,38 @@ fn draw_goal_overlay(
         mouse,
     ) {
         actions.push(UiAction::BackToMenu);
+    }
+}
+
+/// A one-line legend for the in-world status badges, in a thin strip along
+/// the bottom of the world view (shown only while a node is stalled).
+fn draw_status_legend() {
+    use crate::ui::legibility::BuildingStatus as St;
+    let strip = Rect::new(280.0, LOGICAL_HEIGHT - 30.0, LOGICAL_WIDTH - 292.0, 24.0);
+    draw_surface(
+        strip,
+        &SurfaceStyle::new(Color::new(0.06, 0.07, 0.09, 0.88))
+            .with_border(1.0, Color::new(0.38, 0.45, 0.58, 0.4)),
+    );
+    let items = [
+        (St::NoWorker, Color::new(0.95, 0.85, 0.30, 1.0)),
+        (St::InputStarved, Color::new(0.95, 0.55, 0.20, 1.0)),
+        (St::OutputFull, Color::new(0.92, 0.32, 0.26, 1.0)),
+        (St::AwaitingHaul, Color::new(0.40, 0.80, 0.92, 1.0)),
+        (St::Exhausted, Color::new(0.60, 0.60, 0.66, 1.0)),
+    ];
+    let mut lx = strip.x + 12.0;
+    let cy = strip.y + strip.h * 0.5;
+    for (status, color) in items {
+        draw_circle(lx, cy, 5.0, color);
+        let label = status.label();
+        draw_ui_text_ex(
+            label,
+            lx + 12.0,
+            cy + 5.0,
+            TextStyle::new(13.0, dark::TEXT).params(),
+        );
+        lx += 20.0 + label.len() as f32 * 8.0;
     }
 }
 

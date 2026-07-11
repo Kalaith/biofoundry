@@ -61,6 +61,13 @@ pub struct Economy {
     /// Smoothed food production rate (per minute) for the calorie meter —
     /// cooking lands in bursts, so the HUD shows a moving average.
     pub production_ema_per_min: f32,
+    /// Smoothed ore-to-stockpile rate (per minute) — the factory dashboard's
+    /// extraction throughput.
+    #[serde(default)]
+    pub ore_ema_per_min: f32,
+    /// Smoothed ingots-forged rate (per minute) — processing throughput.
+    #[serde(default)]
+    pub ingot_ema_per_min: f32,
 }
 
 /// The live simulation: world map plus everything that ticks.
@@ -163,6 +170,8 @@ impl GameSession {
                 deserted: 0,
                 killed: 0,
                 production_ema_per_min: 0.0,
+                ore_ema_per_min: 0.0,
+                ingot_ema_per_min: 0.0,
             },
             creatures: Vec::new(),
             next_creature_id: 1,

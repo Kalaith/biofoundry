@@ -25,6 +25,11 @@ pub fn draw_world(
     for building in &session.buildings {
         draw_building(session, data, building, tile_size);
     }
+    for building in &session.buildings {
+        if let Some(status) = crate::ui::legibility::building_status(session, data, building) {
+            draw_status_badge(building.pos, tile_size, status);
+        }
+    }
     draw_build_sites(session, tile_size);
     for creature in &session.creatures {
         draw_creature(creature, tile_size);
@@ -463,6 +468,62 @@ fn draw_building(session: &GameSession, data: &GameData, building: &Building, ts
             }
         }
         _ => {}
+    }
+}
+
+/// A distinct shape + colour badge at the building's top-right corner, so a
+/// stalled node is diagnosable at a glance (plan §Phase 9 — the equivalent
+/// of Factorio's no-power icon). Shape and colour both encode the problem.
+fn draw_status_badge(pos: TilePos, ts: f32, status: crate::ui::legibility::BuildingStatus) {
+    use crate::ui::legibility::BuildingStatus as St;
+    let bx = pos.x as f32 * ts + ts * 0.80;
+    let by = pos.y as f32 * ts + ts * 0.20;
+    let r = ts * 0.17;
+    // Dark backing disc for contrast against any tile.
+    draw_circle(bx, by, r + 1.5, Color::new(0.08, 0.08, 0.10, 0.92));
+
+    let color = match status {
+        St::NoWorker => Color::new(0.95, 0.85, 0.30, 1.0),
+        St::InputStarved => Color::new(0.95, 0.55, 0.20, 1.0),
+        St::OutputFull => Color::new(0.92, 0.32, 0.26, 1.0),
+        St::Exhausted => Color::new(0.60, 0.60, 0.66, 1.0),
+        St::AwaitingHaul => Color::new(0.40, 0.80, 0.92, 1.0),
+    };
+    let s = r * 0.85;
+    match status {
+        // Backed up: a full up-triangle.
+        St::OutputFull => draw_triangle(
+            vec2(bx, by - s),
+            vec2(bx - s, by + s * 0.7),
+            vec2(bx + s, by + s * 0.7),
+            color,
+        ),
+        // Starved: an empty down-triangle.
+        St::InputStarved => draw_triangle(
+            vec2(bx, by + s),
+            vec2(bx - s, by - s * 0.7),
+            vec2(bx + s, by - s * 0.7),
+            color,
+        ),
+        // No worker: an empty ring (a vacant post).
+        St::NoWorker => draw_circle_lines(bx, by, s, 2.0, color),
+        // Exhausted: a cross.
+        St::Exhausted => {
+            draw_line(bx - s, by - s, bx + s, by + s, 2.0, color);
+            draw_line(bx - s, by + s, bx + s, by - s, 2.0, color);
+        }
+        // Awaiting haul: a little crate.
+        St::AwaitingHaul => {
+            draw_rectangle(bx - s * 0.75, by - s * 0.75, s * 1.5, s * 1.5, color);
+            draw_rectangle_lines(
+                bx - s * 0.75,
+                by - s * 0.75,
+                s * 1.5,
+                s * 1.5,
+                1.0,
+                Color::new(0.1, 0.2, 0.25, 1.0),
+            );
+        }
     }
 }
 

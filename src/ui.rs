@@ -2,6 +2,7 @@
 //! intents. It never mutates game state — `Game::apply_action` dispatches.
 
 pub mod hud;
+pub mod legibility;
 pub mod menu;
 pub mod warren;
 
