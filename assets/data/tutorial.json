@@ -8,25 +8,37 @@
   {
     "id": "food_grid",
     "title": "Grow the Food Grid",
-    "body": "Top-left: Production vs Upkeep — keep the net positive. Open Build & Dig, pick a Farm, and click open floor near your Cook Pot. Carriers haul the ore to build it.",
+    "body": "Top-left: Production vs Upkeep — keep the net positive. Open Build & Dig, pick a Farm, and place it on open floor near your Cook Pot. Carriers haul the ore to build it.",
     "done": { "kind": "site_placed" }
   },
   {
-    "id": "jobs",
-    "title": "Assign the crew",
-    "body": "Miners dig ore, Carriers feed the kitchen, Cooks make stew, Guards fight. Use – and + in the Jobs panel to reassign a goblin.",
-    "done": { "kind": "any_reassign" }
+    "id": "mine",
+    "title": "The Mine runs itself",
+    "body": "A goblin already works the Ore Mine beside the warren, extracting ore into a buffer that carriers haul to the stockpile — the first live automation loop. Click the Mine to watch its rate.",
+    "done": { "kind": "mine_working" }
+  },
+  {
+    "id": "blacksmith",
+    "title": "Forge the first ingots",
+    "body": "Ore becomes ingots at the Blacksmith. Place one, then set a Smith in the Jobs panel — the anvil hammers ore into the metal that crafts gear and wins the factory.",
+    "done": { "kind": "building_placed", "building": "blacksmith" }
   },
   {
     "id": "famine",
     "title": "Weather the famine",
-    "body": "The first famine hits around minute five. Shift Miners into Carriers and push Production above Upkeep — hungry workers slow the whole warren.",
+    "body": "The first famine hits within a few minutes. Shift Miners into Carriers in the Jobs panel and push Production above Upkeep — hungry workers slow the whole warren.",
     "done": { "kind": "famine_recovered", "value": 30.0 }
   },
   {
+    "id": "pickaxe",
+    "title": "Close the loop",
+    "body": "Click the Blacksmith and queue an Iron Pickaxe. A miner picks it up on its own and the Mine speeds up — extraction feeding processing feeding extraction. That is the factory.",
+    "done": { "kind": "gear_crafted", "item": "iron_pickaxe" }
+  },
+  {
     "id": "goals",
-    "title": "Secure the warren",
-    "body": "Deliver 50 ore and hold a 100-food surplus to win. Beyond that: charcoal, living furnaces, raids — and something vast sleeping below.",
+    "title": "Awaken the Worm",
+    "body": "Deliver 50 ore and hold a 100-food surplus to secure the warren. Then forge 20 ingots, raise the Worm Shrine, and feed the Colossal Worm sleeping below.",
     "done": { "kind": "won" }
   }
 ]

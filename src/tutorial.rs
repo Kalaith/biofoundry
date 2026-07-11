@@ -62,6 +62,23 @@ fn step_done(
                 || (sim_time >= 330.0 && session.economy.food >= *value && !session.famine_active)
         }
         TutorialDone::SitePlaced => session.tutorial_built,
+        TutorialDone::BuildingPlaced { building } => {
+            session.buildings_of(building).next().is_some()
+                || session.build_sites.iter().any(|s| &s.kind == building)
+        }
+        TutorialDone::MineWorking => {
+            use crate::state::creatures::Good;
+            session
+                .buildings_of("mine")
+                .any(|b| b.stock(Good::Ore) >= 1.0)
+        }
+        TutorialDone::GearCrafted { item } => {
+            session.economy.gear_stock.get(item).copied().unwrap_or(0) > 0
+                || session
+                    .creatures
+                    .iter()
+                    .any(|c| c.equipment.as_deref() == Some(item.as_str()))
+        }
         TutorialDone::Won => session.won,
     }
 }
@@ -90,10 +107,11 @@ mod tests {
 
     #[test]
     fn steps_complete_from_player_actions() {
+        use crate::state::creatures::Good;
         let (data, mut session) = boot();
         let none = TutorialInputs::default();
 
-        // Step 1 waits for camera input.
+        // 1. Look around.
         assert_eq!(current_step(&session, &data).unwrap().id, "welcome");
         assert!(!advance(&mut session, &data, none));
         assert!(advance(
@@ -103,25 +121,53 @@ mod tests {
         ));
         assert_eq!(current_step(&session, &data).unwrap().id, "food_grid");
 
-        // Step 2 asks for a build site; step 3 needs a reassign.
+        // 2. Place a build site.
         assert!(!advance(&mut session, &data, none));
         session.tutorial_built = true;
         assert!(advance(&mut session, &data, none));
-        assert_eq!(current_step(&session, &data).unwrap().id, "jobs");
-        let moved = session.reassign(Job::Miner, Job::Carrier, |_| true);
-        assert!(moved);
-        assert!(advance(&mut session, &data, none));
-        assert_eq!(current_step(&session, &data).unwrap().id, "famine");
 
-        // Famine step clears early once the player has responded: carriers
-        // above the starting crew (the reassign above did that) and a
-        // positive calorie balance.
-        assert!(!advance(&mut session, &data, none), "net is still negative");
+        // 3. Meet the Mine — completes once it has extracted ore.
+        assert_eq!(current_step(&session, &data).unwrap().id, "mine");
+        assert!(!advance(&mut session, &data, none));
+        let mine = session.buildings_of("mine").next().unwrap().pos;
+        session
+            .building_at_mut(mine)
+            .unwrap()
+            .add_stock(Good::Ore, 2.0);
+        assert!(advance(&mut session, &data, none));
+
+        // 4. Place the Blacksmith.
+        assert_eq!(current_step(&session, &data).unwrap().id, "blacksmith");
+        assert!(!advance(&mut session, &data, none));
+        let spot = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .find(|(pos, _)| session.can_place_building(*pos))
+            .map(|(pos, _)| pos)
+            .unwrap();
+        session
+            .buildings
+            .push(crate::state::structures::Building::new("blacksmith", spot));
+        assert!(advance(&mut session, &data, none));
+
+        // 5. Weather the famine (reassign + positive balance).
+        assert_eq!(current_step(&session, &data).unwrap().id, "famine");
+        session.reassign(Job::Miner, Job::Carrier, |_| true);
         session.economy.production_ema_per_min = 999.0;
         assert!(advance(&mut session, &data, none));
-        assert_eq!(current_step(&session, &data).unwrap().id, "goals");
 
-        // Winning finishes the tutorial.
+        // 6. Craft a pickaxe.
+        assert_eq!(current_step(&session, &data).unwrap().id, "pickaxe");
+        assert!(!advance(&mut session, &data, none));
+        session
+            .economy
+            .gear_stock
+            .insert("iron_pickaxe".to_owned(), 1);
+        assert!(advance(&mut session, &data, none));
+
+        // 7. Win finishes the tutorial.
+        assert_eq!(current_step(&session, &data).unwrap().id, "goals");
         session.won = true;
         assert!(advance(&mut session, &data, none));
         assert!(current_step(&session, &data).is_none(), "tutorial finished");
@@ -133,7 +179,8 @@ mod tests {
     fn famine_step_also_clears_after_recovery() {
         let (data, mut session) = boot();
         let none = TutorialInputs::default();
-        session.tutorial_step = 3;
+        // Jump to the famine step (index 4 in the seven-step flow).
+        session.tutorial_step = data.tutorial.iter().position(|s| s.id == "famine").unwrap();
         assert_eq!(current_step(&session, &data).unwrap().id, "famine");
 
         // No extra carriers, no production — only riding out the crisis
@@ -142,7 +189,7 @@ mod tests {
         assert!(!advance(&mut session, &data, none), "too early to count");
         session.tick = (400.0 / simulation::SIM_DT) as u64;
         assert!(advance(&mut session, &data, none));
-        assert_eq!(current_step(&session, &data).unwrap().id, "goals");
+        assert_eq!(current_step(&session, &data).unwrap().id, "pickaxe");
     }
 
     #[test]

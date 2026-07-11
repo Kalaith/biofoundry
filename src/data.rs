@@ -242,6 +242,14 @@ pub enum TutorialDone {
     FamineRecovered { value: f32 },
     /// The player placed any build site.
     SitePlaced,
+    /// A building (or its ghost) of this kind exists — teaches a specific
+    /// build like the Blacksmith.
+    BuildingPlaced { building: String },
+    /// A Mine has extracted ore into its buffer — it's working.
+    MineWorking,
+    /// A piece of equipment (item id) has been crafted — in the stockpile
+    /// pool or already worn.
+    GearCrafted { item: String },
     /// The first victory landed.
     Won,
 }

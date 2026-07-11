@@ -30,7 +30,7 @@
   "smelt_batch_charcoal": 1.0,
   "smelt_batch_time_sec": 10.0,
   "smelter_ore_target": 6,
-  "smith_batch_ore": 3,
+  "smith_batch_ore": 2,
   "smith_batch_time_sec": 12.0,
   "gear_craft_time_sec": 8.0,
   "order_queue_size": 8,
@@ -60,7 +60,7 @@
   "win_food_surplus": 100.0,
   "win_ore_delivered": 50,
   "win2_ingots": 20,
-  "worm_food_per_min": 12.0,
+  "worm_food_per_min": 8.0,
   "worm_feed_reserve": 25.0,
-  "worm_awaken_at": 60.0
+  "worm_awaken_at": 110.0
 }

@@ -1,8 +1,9 @@
 # Biofoundry — Game Design
 
-*This document describes the game **as implemented** (all plan phases 0–5
-complete, July 2026). For the original phase plan and pre-production notes see
-[`biofoundry_plan.md`](biofoundry_plan.md) and
+*This document describes the game **as implemented** (all plan phases 0–5 and
+the automation plan phases 6–11 complete, July 2026). For the phase plans and
+pre-production notes see [`biofoundry_plan.md`](biofoundry_plan.md),
+[`automation_plan.md`](automation_plan.md), and
 [`new_gdd_notes.md`](new_gdd_notes.md). All numbers quoted here come from
 `assets/data/*.json` — that's the source of truth, and it's tunable without
 recompiling.*
@@ -60,7 +61,7 @@ The player never orders a specific creature to a specific tile. The full verb
 set:
 
 - **Assign jobs** — a Jobs panel with −/+ counters per job (Miner, Carrier,
-  Cook, Guard); goblins move between jobs and the idle pool. This is the
+  Cook, Smith, Guard); goblins move between jobs and the idle pool. This is the
   primary crisis-response lever: shifting miners into carriers before the
   famine is the game's first learned skill.
 - **Designate digs** — Dig mode toggles designations on rock; miners carve the
@@ -70,10 +71,9 @@ set:
   the site; it becomes real when supplied. Placement is the layout game:
   farms near the cook pot mean shorter hauls and faster stew. The **Mine** is
   the first *workstation* — it may only be placed on floor beside an ore vein.
-- **Inspect** — clicking a building opens a panel: for a Mine, its miners /
-  ore-per-minute / buffer / remaining deposit at a glance.
 - **Attract specialists** — spend banked ore to attract a Beetle Hauler
-  (25 ore) or a Salamander Smelter (20 ore).
+  (25 ore) or a Salamander Smelter (20 ore); breed Hobgoblins and an Overseer
+  at the Breeding Pit (spend ingots, once forged-ingot unlocks fire).
 - **Queue equipment** — the Blacksmith's inspection panel holds a production
   queue; order a pickaxe/frame/hammer/blade and the Smith crafts it from
   banked ingots. The one explicit production verb — everything else is
@@ -91,7 +91,7 @@ The central mechanic. Every creature drains satiation continuously and refills
 from the stockpile; the stockpile is fed by the farm → haul → cook chain.
 
 - **Upkeep**: a working goblin draws 2 food/min. Cooks and guards work harder:
-  ×2 (4/min). Idle creatures draw ×0.5. A beetle draws 8/min — the classic
+  ×2 (4/min). Idle creatures draw ×0.5. A beetle draws 5/min — the classic
   "is one expensive specialist worth ten cheap generalists?" decision.
 - **Generation**: a Mushroom Farm grows 14 mushrooms/min (local cap 24;
   carriers must haul them or the farm idles). A Cook Pot converts 2 mushrooms
@@ -115,7 +115,7 @@ from the stockpile; the stockpile is fed by the farm → haul → cook chain.
   (recovering to 20+ food) increments the `famines_survived` counter and
   unlocks Preservation Techniques.
 
-On the default seed the first famine hits **~5.5 sim-minutes in** and is
+On the default seed the first famine hits **~4 sim-minutes in** and is
 survivable by reassigning workers — this is the tuned first crisis, taught by
 the tutorial.
 
@@ -128,7 +128,7 @@ All species live in `assets/data/species.json`.
 | Goblin | food | 2/min (×2 cook/guard/smith, ×0.5 idle) | 1 | The generalist. Reassignable between Miner / Carrier / Cook / Smith / Guard / Idle. |
 | Hobgoblin | food | 5/min | 1 | Heavyweight worker: **×2 work speed** at any job for ×2.5 upkeep — the specialist-vs-generalist ledger, now for labour itself. Bred at the Breeding Pit (unlock: forge 30 ingots). |
 | Goblin Overseer | food | 6/min | 0 | The living beacon: doesn't work, but **×1.35 work speed** to every worker in its aura. One per district. Bred at the Breeding Pit (unlock: forge 45 ingots). |
-| Beetle Hauler | food | 8/min | 5 | Dedicated hauler, 5× a goblin's load. Attracted for 25 ore; not reassignable. |
+| Beetle Hauler | food | 5/min | 5 | Dedicated hauler, 5× a goblin's load. Attracted for 25 ore; not reassignable. |
 | Salamander Smelter | **charcoal** | — | 0 | A living furnace: its meal is its fuel. Attracted for 20 ore; works the Smelter Den. |
 | Wild Beetle | — | — | — | Wanders in from the map edge (every ~100 s, max 2 loose). Capturable in snare traps. |
 | Gnarl Raider | your stockpile | — | — | Raid antagonist: beelines for the larder and eats 30 food/min until driven off or sated (flees after 12). |
@@ -151,7 +151,7 @@ deliver materials. From `assets/data/buildings.json`:
 | Mushroom Farm | 10 | Grows mushrooms (food chain input). |
 | Ore Mine | 12 | *Workstation.* Placed beside an ore vein; a stationed miner extracts ore into a local buffer that carriers drain to the stockpile. Finite (but generous) deposit. |
 | Cook Pot | 8 | Mushrooms → stew (the calorie multiplier). |
-| Blacksmith | 8 | *Workstation.* A goblin Smith hammers ore → ingots (3 ore → 1 ingot). No charcoal, no unlock — the first processing node, live from the early minutes. Deliberately ore-inefficient so the smelter stays the bulk upgrade. |
+| Blacksmith | 8 | *Workstation.* A goblin Smith hammers ore → ingots (2 ore → 1 ingot). No charcoal, no unlock — the first processing node, live from the early minutes. Deliberately ore-inefficient so the smelter stays the bulk upgrade. |
 | Charcoal Kiln | 12 | Sporewood → charcoal, 3/min (wood cap 8). |
 | Smelter Den | 15 | Salamander workstation: 1 ore + 1 charcoal → 1 ingot per 10 s batch — the bulk (ore-efficient) forge. |
 | Snare Trap | 6 | Single-use wild-beetle capture. |
@@ -173,7 +173,7 @@ The three chains, each of which **eats**:
 3. **Ingots (the forge chains):** two forges make ingots, banked at the
    stockpile and counted toward the factory goal.
    - *Blacksmith (early):* a goblin Smith hammers banked ore into ingots
-     (3 ore → 1 ingot) — no fuel, live from minute ~4. Ore-hungry by design.
+     (2 ore → 1 ingot) — no fuel, live from the early minutes. Ore-hungry by design.
    - *Smelter Den (bulk upgrade):* sporewood groves (regrow ~45 s) → carriers
      haul wood → kiln smoulders charcoal → salamander eats the charcoal *as
      its smelting fuel* → 1 ore + 1 charcoal → 1 ingot. Industry depends on
@@ -243,13 +243,13 @@ desertion ↔ raid loss spiral is the game's failure state.
 
 | Beat | ~Sim time | What it asks of the player |
 | --- | --- | --- |
-| First famine | 5.5 min | Read the meter, reassign jobs. |
-| **Warren Secured** (win 1) | ~15 min | Hold a 100-food surplus + deliver 50 ore. |
-| **Factory Complete** (win 2) | ~26 min | Place a Blacksmith (and the bulk smelter chain), forge 20 ingots. |
-| **Worm Awakened** (campaign) | ~49 min | Build the Worm Shrine; feed the Colossal Worm 60 food of offerings. |
+| First famine | ~4 min | Read the meter, reassign jobs. |
+| **Warren Secured** (win 1) | ~18 min | Hold a 100-food surplus + deliver 50 ore. |
+| **Factory Complete** (win 2) | ~25 min | Place a Blacksmith (the salamander smelter is the bulk alternative), forge 20 ingots. |
+| **Worm Awakened** (campaign) | ~37 min | Build the Worm Shrine; feed the Colossal Worm 110 food of offerings. |
 
 The Worm Shrine is the endgame stress test: the worm demands offerings at
-**12 food/min** — a permanent heavy draw on the grid — but pauses politely
+**8 food/min** — a permanent heavy draw on the grid — but pauses politely
 below a 25-food reserve, so it pressures the economy without being able to
 blackout the warren by itself. Sating it awakens the worm, which coils around
 its shrine as a monument; **endless mode** continues after, with ongoing raid
@@ -258,11 +258,13 @@ or two if played reactively.
 
 ## 9. Onboarding
 
-A six-step tutorial (`assets/data/tutorial.json`) shows as a HUD card in new
+A seven-step tutorial (`assets/data/tutorial.json`) shows as a HUD card in new
 warrens. Every step advances on a **real player action**, not a timer or a
-"next" button: move the camera → watch the food grid → reassign a job →
-survive the first famine → place a building → win. Skippable; progress
-persists in saves.
+"next" button: look around → place a Farm → meet the Mine (it's already
+working) → place the Blacksmith → weather the famine → craft an Iron Pickaxe
+(and feel the Mine speed up) → win. The pickaxe step is the teaching
+centrepiece — it closes the extraction → processing → extraction loop by hand.
+Skippable; progress persists in saves.
 
 ## 10. World & presentation
 
@@ -301,8 +303,8 @@ Repo-standard architecture; see `README.md` and `docs/`:
 ## 12. Backlog / future directions
 
 *The early-automation direction (staffed mines, blacksmith/ingots, equipment
-feedback loops) is now planned in detail as phases 6–11 — see
-[`automation_plan.md`](automation_plan.md).*
+feedback loops, factory legibility, and the goblin evolution line) shipped as
+[`automation_plan.md`](automation_plan.md) phases 6–11.*
 
 Deferred from the original plan, in rough order of design interest:
 

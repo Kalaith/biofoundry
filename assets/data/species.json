@@ -38,7 +38,7 @@
     "id": "beetle",
     "name": "Beetle Hauler",
     "diet": "food",
-    "food_per_min": 8.0,
+    "food_per_min": 5.0,
     "move_tiles_per_sec": 2.0,
     "carry_capacity": 5,
     "max_hp": 40.0,
