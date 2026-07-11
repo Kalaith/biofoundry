@@ -50,6 +50,10 @@ pub struct Economy {
     /// Ingots banked at the stockpile, spendable on equipment (Phase 8).
     #[serde(default)]
     pub ingots_stock: u32,
+    /// Crafted equipment waiting at the stockpile for a matching creature
+    /// to pick up (item id → count).
+    #[serde(default)]
+    pub gear_stock: HashMap<String, u32>,
     /// Creatures lost to starvation desertion (blackout consequence).
     pub deserted: u32,
     /// Workers killed defending the warren.
@@ -155,6 +159,7 @@ impl GameSession {
                 ore_delivered_total: 0,
                 ingots_forged: 0,
                 ingots_stock: 0,
+                gear_stock: HashMap::new(),
                 deserted: 0,
                 killed: 0,
                 production_ema_per_min: 0.0,

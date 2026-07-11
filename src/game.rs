@@ -161,6 +161,44 @@ impl Game {
                         session.buildings_of("blacksmith").next().map(|b| b.pos);
                 }
             }
+            "equipment" => {
+                self.transition(StateTransition::StartWarren);
+                if let GameState::Warren(session) = &mut self.state {
+                    // The feedback loop mid-flow: an equipped miner at the
+                    // prebuilt mine, a blacksmith crafting a queued pickaxe,
+                    // inspection open on the mine to show the boosted rate.
+                    session.tutorial_dismissed = true;
+                    session.economy.food = 300.0;
+                    session.economy.ingots_stock = 4;
+                    // Equip the working miner with an Iron Pickaxe outright.
+                    if let Some(m) = session.creatures.iter_mut().find(|c| c.job == Job::Miner) {
+                        m.equipment = Some("iron_pickaxe".to_owned());
+                    }
+                    // A blacksmith with ingots and a queued craft.
+                    let spawn = session.spawn_tile();
+                    let spot = session
+                        .world
+                        .tiles
+                        .iter_with_pos()
+                        .filter(|(pos, _)| session.can_place_building(*pos))
+                        .map(|(pos, _)| pos)
+                        .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y));
+                    if let Some(spot) = spot {
+                        let mut shop = crate::state::structures::Building::new("blacksmith", spot);
+                        shop.add_stock(crate::state::creatures::Good::Ingot, 3.0);
+                        shop.orders.push("hauling_frame".to_owned());
+                        session.buildings.push(shop);
+                    }
+                    let species = &self.data.species;
+                    session.reassign(Job::Miner, Job::Smith, |s| {
+                        species.get(s).map(|d| d.reassignable).unwrap_or(false)
+                    });
+                    for _ in 0..200 {
+                        simulation::tick(session, &self.data);
+                    }
+                    self.selected_building = session.buildings_of("mine").next().map(|b| b.pos);
+                }
+            }
             "famine" => {
                 self.transition(StateTransition::StartWarren);
                 if let GameState::Warren(session) = &mut self.state {
@@ -519,6 +557,20 @@ impl Game {
                 self.audio.play(Sfx::Select);
             }
             UiAction::WorldClick(tile) => self.world_click(tile),
+            UiAction::QueueOrder(pos, item) => {
+                let cap = self.data.balance.order_queue_size;
+                if let GameState::Warren(session) = &mut self.state {
+                    if let Some(b) = session.building_at_mut(pos) {
+                        if b.kind == "blacksmith" && b.orders.len() < cap {
+                            b.orders.push(item);
+                            self.notifications.info("Order queued.");
+                            self.audio.play(Sfx::Select);
+                        } else {
+                            self.audio.play(Sfx::Deny);
+                        }
+                    }
+                }
+            }
             UiAction::Save => self.save_game(),
             UiAction::Load => self.load_game(),
             UiAction::ToggleSettings => {

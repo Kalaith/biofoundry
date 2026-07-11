@@ -543,6 +543,23 @@ fn draw_creature(creature: &Creature, ts: f32) {
         draw_circle_lines(x, y, radius + 2.0, 2.0, dark::WARNING);
     }
 
+    // Equipped gear: a bright glint on the shoulder marks an upgraded worker.
+    if creature.equipment.is_some() {
+        draw_circle(
+            x + radius * 0.7,
+            y - radius * 0.7,
+            ts * 0.07,
+            Color::new(0.95, 0.9, 0.6, 1.0),
+        );
+        draw_circle_lines(
+            x + radius * 0.7,
+            y - radius * 0.7,
+            ts * 0.07,
+            1.0,
+            Color::new(0.5, 0.42, 0.2, 0.9),
+        );
+    }
+
     // Carried goods: a small dot on the back.
     if let Some((good, _)) = creature.carrying {
         let color = match good {

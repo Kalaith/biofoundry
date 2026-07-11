@@ -12,6 +12,7 @@ const SPECIES_JSON: &str = include_str!("../assets/data/species.json");
 const BALANCE_JSON: &str = include_str!("../assets/data/balance.json");
 const BUILDINGS_JSON: &str = include_str!("../assets/data/buildings.json");
 const UNLOCKS_JSON: &str = include_str!("../assets/data/unlocks.json");
+const EQUIPMENT_JSON: &str = include_str!("../assets/data/equipment.json");
 const TUTORIAL_JSON: &str = include_str!("../assets/data/tutorial.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +99,10 @@ pub struct Balance {
     /// charcoal chain stays the mid-game throughput upgrade.
     pub smith_batch_ore: u32,
     pub smith_batch_time_sec: f32,
+    /// Time for a smith to craft one piece of equipment from banked ingots.
+    pub gear_craft_time_sec: f32,
+    /// Maximum pending production orders a blacksmith holds.
+    pub order_queue_size: usize,
     /// Carriers keep each blacksmith's ore stock topped up to this level.
     pub blacksmith_ore_target: u32,
     /// Smelter refills only draw from bank above this reserve, so endless
@@ -191,6 +196,22 @@ pub struct UnlockDef {
     pub building: Option<String>,
 }
 
+/// A craftable equipment item: gear a creature of the matching job wears
+/// to boost throughput (plan §Phase 8 — the biological answer to Factorio
+/// modules). Forged from ingots at the Blacksmith.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EquipmentDef {
+    pub id: String,
+    pub name: String,
+    /// Job affinity: only a creature of this job equips and benefits.
+    pub job: String,
+    pub cost_ingots: u32,
+    /// "mine_speed_mult", "carry_bonus", "smith_time_mult",
+    /// "guard_dps_mult".
+    pub effect: String,
+    pub value: f32,
+}
+
 /// What completes a tutorial step (checked every frame while active).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -223,8 +244,16 @@ pub struct GameData {
     pub species: DataRegistry<SpeciesDef>,
     pub buildings: DataRegistry<BuildingDef>,
     pub unlocks: Vec<UnlockDef>,
+    pub equipment: Vec<EquipmentDef>,
     pub tutorial: Vec<TutorialStepDef>,
     pub balance: Balance,
+}
+
+impl GameData {
+    /// The equipment definition of an item id, if any.
+    pub fn equipment_def(&self, id: &str) -> Option<&EquipmentDef> {
+        self.equipment.iter().find(|e| e.id == id)
+    }
 }
 
 impl GameData {
@@ -233,6 +262,7 @@ impl GameData {
         let species = DataRegistry::from_embedded_json(SPECIES_JSON, "id")?;
         let buildings = DataRegistry::from_embedded_json(BUILDINGS_JSON, "id")?;
         let unlocks: Vec<UnlockDef> = load_embedded_json_labeled("unlocks", UNLOCKS_JSON)?;
+        let equipment: Vec<EquipmentDef> = load_embedded_json_labeled("equipment", EQUIPMENT_JSON)?;
         let tutorial: Vec<TutorialStepDef> = load_embedded_json_labeled("tutorial", TUTORIAL_JSON)?;
         let balance = load_embedded_json_labeled("balance", BALANCE_JSON)?;
 
@@ -241,6 +271,7 @@ impl GameData {
             species,
             buildings,
             unlocks,
+            equipment,
             tutorial,
             balance,
         })
@@ -277,6 +308,26 @@ mod tests {
             "beetle must haul at least 5x a goblin (plan)"
         );
         assert!(beetle.food_per_min > goblin.food_per_min);
+    }
+
+    #[test]
+    fn equipment_loads_with_valid_job_affinities() {
+        let data = GameData::load().unwrap();
+        assert!(!data.equipment.is_empty(), "expected launch equipment set");
+        let pick = data
+            .equipment_def("iron_pickaxe")
+            .expect("iron pickaxe exists");
+        assert_eq!(pick.job, "miner");
+        assert!(pick.cost_ingots > 0);
+        assert!(pick.value > 1.0, "a pickaxe should be a speed multiplier");
+        // Every item targets a real, gear-wearing job.
+        for eq in &data.equipment {
+            assert!(
+                ["miner", "carrier", "smith", "guard"].contains(&eq.job.as_str()),
+                "unknown job affinity {}",
+                eq.job
+            );
+        }
     }
 
     #[test]

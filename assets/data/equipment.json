@@ -1,0 +1,34 @@
+[
+  {
+    "id": "iron_pickaxe",
+    "name": "Iron Pickaxe",
+    "job": "miner",
+    "cost_ingots": 2,
+    "effect": "mine_speed_mult",
+    "value": 1.5
+  },
+  {
+    "id": "hauling_frame",
+    "name": "Hauling Frame",
+    "job": "carrier",
+    "cost_ingots": 2,
+    "effect": "carry_bonus",
+    "value": 1.0
+  },
+  {
+    "id": "smiths_hammer",
+    "name": "Smith's Hammer",
+    "job": "smith",
+    "cost_ingots": 3,
+    "effect": "smith_time_mult",
+    "value": 0.75
+  },
+  {
+    "id": "guard_blade",
+    "name": "Guard Blade",
+    "job": "guard",
+    "cost_ingots": 3,
+    "effect": "guard_dps_mult",
+    "value": 1.5
+  }
+]

@@ -20,6 +20,10 @@ pub struct Building {
     /// pre-Phase-6 saves loading.
     #[serde(default)]
     pub reserve: f32,
+    /// Equipment craft queue (item ids), for the Blacksmith. The smith
+    /// works the front order once it has banked enough ingots.
+    #[serde(default)]
+    pub orders: Vec<String>,
 }
 
 impl Building {
@@ -29,6 +33,7 @@ impl Building {
             pos,
             stocks: HashMap::new(),
             reserve: 0.0,
+            orders: Vec::new(),
         }
     }
 

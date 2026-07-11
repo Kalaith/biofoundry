@@ -98,6 +98,14 @@ pub enum Task {
         shop: TilePos,
         remaining: f32,
     },
+    /// Crafting a piece of equipment at a blacksmith from banked ingots.
+    Crafting {
+        shop: TilePos,
+        item: String,
+        remaining: f32,
+    },
+    /// Walking to the stockpile to pick up matching gear.
+    GoEquip,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +128,10 @@ pub struct Creature {
     pub starving_for: f32,
     /// Health; raiders can kill guards. Set from species max_hp at spawn.
     pub hp: f32,
+    /// Equipped gear item id (`equipment.json`), matching this creature's
+    /// job. Boosts throughput; dropped back to the pool on reassignment.
+    #[serde(default)]
+    pub equipment: Option<String>,
 }
 
 impl Creature {
@@ -136,6 +148,7 @@ impl Creature {
             satiation: 1.0,
             starving_for: 0.0,
             hp: 1.0,
+            equipment: None,
         }
     }
 

@@ -32,6 +32,8 @@
   "smelter_ore_target": 6,
   "smith_batch_ore": 3,
   "smith_batch_time_sec": 12.0,
+  "gear_craft_time_sec": 8.0,
+  "order_queue_size": 8,
   "blacksmith_ore_target": 6,
   "smelter_bank_reserve": 12,
   "salamander_hunger_drain_sec": 120.0,

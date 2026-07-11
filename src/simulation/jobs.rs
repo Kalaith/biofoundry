@@ -55,6 +55,12 @@ fn tick_creature(
         return;
     }
 
+    // Auto-equip: drop job-mismatched gear, fetch matching gear waiting at
+    // the stockpile. Takes over the tick while walking there.
+    if tick_gear(creature, session, data) {
+        return;
+    }
+
     match creature.job {
         Job::Idle => {
             if creature.task != Task::Idle {
@@ -80,6 +86,82 @@ fn walk(creature: &mut Creature, species: &SpeciesDef, dt: f32) {
         speed,
         dt,
     );
+}
+
+// ------------------------------------------------------------- equipment
+
+/// The equipment job-affinity key for a job, if it can wear gear.
+fn job_key(job: Job) -> Option<&'static str> {
+    match job {
+        Job::Miner => Some("miner"),
+        Job::Carrier => Some("carrier"),
+        Job::Smith => Some("smith"),
+        Job::Guard => Some("guard"),
+        _ => None,
+    }
+}
+
+/// The value of the equipped item's `effect`, if this creature wears gear
+/// with that effect. Callers fold in the identity (1.0 or 0.0).
+fn equip_effect(creature: &Creature, data: &GameData, effect: &str) -> Option<f32> {
+    let def = data.equipment_def(creature.equipment.as_deref()?)?;
+    (def.effect == effect).then_some(def.value)
+}
+
+/// A creature's carry capacity, including a Hauling Frame's bonus.
+fn carry_capacity(creature: &Creature, species: &SpeciesDef, data: &GameData) -> u32 {
+    species.carry_capacity + equip_effect(creature, data, "carry_bonus").unwrap_or(0.0) as u32
+}
+
+/// The gear item this creature should be wearing but isn't — a banked item
+/// matching its job. None if already equipped or nothing is waiting.
+fn wants_gear(creature: &Creature, session: &GameSession, data: &GameData) -> Option<String> {
+    if creature.equipment.is_some() {
+        return None;
+    }
+    let key = job_key(creature.job)?;
+    data.equipment
+        .iter()
+        .filter(|e| e.job == key)
+        .find(|e| session.economy.gear_stock.get(&e.id).copied().unwrap_or(0) > 0)
+        .map(|e| e.id.clone())
+}
+
+/// Indirect auto-equip: drop gear that no longer matches this creature's
+/// job back to the pool, then fetch matching gear from the stockpile.
+/// Returns true when it took over the tick (walking there to equip).
+fn tick_gear(creature: &mut Creature, session: &mut GameSession, data: &GameData) -> bool {
+    // Drop job-mismatched gear (e.g. a reassigned goblin).
+    if let Some(id) = creature.equipment.clone() {
+        let job_ok = data
+            .equipment_def(&id)
+            .is_some_and(|e| job_key(creature.job) == Some(e.job.as_str()));
+        if !job_ok {
+            *session.economy.gear_stock.entry(id).or_insert(0) += 1;
+            creature.equipment = None;
+        }
+    }
+    // Fetch matching gear waiting at the stockpile.
+    if let Some(item) = wants_gear(creature, session, data) {
+        let stockpile = session.stockpile_pos();
+        if creature.tile() == stockpile {
+            if let Some(count) = session.economy.gear_stock.get_mut(&item) {
+                if *count > 0 {
+                    *count -= 1;
+                    creature.equipment = Some(item);
+                }
+            }
+            if creature.task == Task::GoEquip {
+                creature.task = Task::Idle;
+            }
+        } else {
+            send_to(creature, session, stockpile, Task::GoEquip);
+            return true;
+        }
+    } else if creature.task == Task::GoEquip {
+        creature.task = Task::Idle;
+    }
+    false
 }
 
 // ---------------------------------------------------------------- miners
@@ -127,9 +209,11 @@ fn tick_miner(
             }
             // Extract into the local buffer, drawing down the deposit. A
             // full buffer stalls the miner in place (output backed up) —
-            // it resumes when carriers drain it.
+            // it resumes when carriers drain it. An Iron Pickaxe multiplies
+            // the extraction rate — the feedback loop the factory runs on.
+            let pickaxe = equip_effect(creature, data, "mine_speed_mult").unwrap_or(1.0);
             let headroom = (cap - b.stock(Good::Ore)).max(0.0);
-            let amount = (rate / 60.0 * dt * creature.work_speed())
+            let amount = (rate / 60.0 * dt * creature.work_speed() * pickaxe)
                 .min(b.reserve)
                 .min(headroom);
             if amount > 0.0 {
@@ -310,8 +394,7 @@ fn tick_carrier(
                 return;
             }
             let wanted = ore_wanted(session, data);
-            let take = species
-                .carry_capacity
+            let take = carry_capacity(creature, species, data)
                 .min(session.economy.ore_stock)
                 .min(wanted);
             session.economy.ore_stock -= take;
@@ -377,7 +460,7 @@ fn choose_carrier_work(
             return;
         }
     }
-    if creature.carried(Good::Mushroom) >= species.carry_capacity {
+    if creature.carried(Good::Mushroom) >= carry_capacity(creature, species, data) {
         if let Some(pot) = nearest_building(creature, session, "cook_pot") {
             send_to(creature, session, pot, Task::DeliverTo(pot));
         }
@@ -495,9 +578,11 @@ fn try_industry_chain(creature: &mut Creature, session: &mut GameSession, data: 
         return true;
     }
 
-    // Ingot runs: forge output back to the stockpile.
+    // Ingot runs: forge output back to the stockpile. A blacksmith working
+    // a production order keeps its ingots (they feed the craft), so only
+    // drain it when its queue is empty.
     if let Some(forge) = nearest_building_where(creature, session, "blacksmith", |b| {
-        b.stock(Good::Ingot) >= 1.0
+        b.stock(Good::Ingot) >= 1.0 && b.orders.is_empty()
     })
     .or_else(|| {
         nearest_building_where(creature, session, "smelter", |b| {
@@ -639,7 +724,7 @@ fn harvest_source(
     let Some(good) = fetchable_good(session, source) else {
         return;
     };
-    let space = species.carry_capacity - creature.carried(good);
+    let space = carry_capacity(creature, species, data).saturating_sub(creature.carried(good));
     if space == 0 {
         return;
     }
@@ -796,7 +881,9 @@ fn tick_guard(creature: &mut Creature, session: &mut GameSession, data: &GameDat
             }
         }
         Task::Hunt { target } => {
-            let dps = wildlife::guard_dps(session, data) * creature.work_speed();
+            // A Guard Blade multiplies DPS, stacking with Hardened Guards.
+            let blade = equip_effect(creature, data, "guard_dps_mult").unwrap_or(1.0);
+            let dps = wildlife::guard_dps(session, data) * creature.work_speed() * blade;
             let Some(wild) = session.wilds.iter_mut().find(|w| w.id == target) else {
                 creature.task = Task::Idle;
                 return;
@@ -909,34 +996,61 @@ fn tick_smelter(creature: &mut Creature, session: &mut GameSession, data: &GameD
 /// Goblin smiths: a Blacksmith workstation hammers ore into ingots — the
 /// first processing node, live from the early minutes. Deliberately worse
 /// per-ore than the salamander smelter (labour-only, no charcoal), so the
-/// charcoal chain stays the bulk upgrade.
+/// charcoal chain stays the bulk upgrade. When the shop has a queued
+/// production order and enough banked ingots, the smith crafts equipment
+/// instead — the player's first explicit production verb.
 fn tick_smith(creature: &mut Creature, session: &mut GameSession, data: &GameData, dt: f32) {
     let b = &data.balance;
+    // A Smith's Hammer speeds the smith's work.
+    let hammer = equip_effect(creature, data, "smith_time_mult").unwrap_or(1.0);
     match creature.task.clone() {
         Task::Idle => {
-            let ready = nearest_building_where(creature, session, "blacksmith", |shop| {
-                shop.stock(Good::Ore) >= b.smith_batch_ore as f32
-            });
-            if let Some(shop) = ready {
-                if creature.tile() == shop {
-                    if let Some(building) = session.building_at_mut(shop) {
-                        building.take_stock(Good::Ore, b.smith_batch_ore as f32);
-                        creature.task = Task::Smithing {
-                            shop,
-                            remaining: b.smith_batch_time_sec,
-                        };
-                    }
-                } else {
-                    send_to(creature, session, shop, Task::GoSmith(shop));
-                }
+            let Some(shop) = nearest_building(creature, session, "blacksmith") else {
+                return;
+            };
+            if creature.tile() != shop {
+                send_to(creature, session, shop, Task::GoSmith(shop));
                 return;
             }
-            // No ore to work: wait at the nearest blacksmith.
-            if let Some(shop) = nearest_building(creature, session, "blacksmith") {
-                if creature.tile() != shop {
-                    send_to(creature, session, shop, Task::GoSmith(shop));
+            // At the anvil. Work a production order if one's queued and paid
+            // for; otherwise forge ingots (which accumulate toward the order
+            // or get banked when the queue is empty).
+            let front = session
+                .building_at(shop)
+                .and_then(|s| s.orders.first().cloned());
+            if let Some(item) = front {
+                let cost = data
+                    .equipment_def(&item)
+                    .map(|e| e.cost_ingots)
+                    .unwrap_or(0);
+                let have = session.building_at(shop).map(|s| s.stock(Good::Ingot));
+                if have.unwrap_or(0.0) >= cost as f32 {
+                    if let Some(building) = session.building_at_mut(shop) {
+                        building.take_stock(Good::Ingot, cost as f32);
+                        building.orders.remove(0);
+                    }
+                    creature.task = Task::Crafting {
+                        shop,
+                        item,
+                        remaining: b.gear_craft_time_sec * hammer,
+                    };
+                    return;
                 }
             }
+            // Forge an ingot batch when ore is on hand.
+            let has_ore = session
+                .building_at(shop)
+                .is_some_and(|s| s.stock(Good::Ore) >= b.smith_batch_ore as f32);
+            if has_ore {
+                if let Some(building) = session.building_at_mut(shop) {
+                    building.take_stock(Good::Ore, b.smith_batch_ore as f32);
+                }
+                creature.task = Task::Smithing {
+                    shop,
+                    remaining: b.smith_batch_time_sec * hammer,
+                };
+            }
+            // else: nothing to do — wait at the anvil (Idle).
         }
         Task::GoSmith(_) => creature.task = Task::Idle,
         Task::Smithing { shop, remaining } => {
@@ -951,6 +1065,24 @@ fn tick_smith(creature: &mut Creature, session: &mut GameSession, data: &GameDat
                     building.add_stock(Good::Ingot, 1.0);
                 }
                 session.economy.ingots_forged += 1;
+                creature.task = Task::Idle;
+            }
+        }
+        Task::Crafting {
+            shop,
+            item,
+            remaining,
+        } => {
+            let left = remaining - dt * creature.work_speed();
+            if left > 0.0 {
+                creature.task = Task::Crafting {
+                    shop,
+                    item,
+                    remaining: left,
+                };
+            } else {
+                // Finished gear waits at the stockpile for a matching worker.
+                *session.economy.gear_stock.entry(item).or_insert(0) += 1;
                 creature.task = Task::Idle;
             }
         }

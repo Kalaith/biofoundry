@@ -523,6 +523,141 @@ mod tests {
         );
     }
 
+    /// Modifier math: an Iron Pickaxe multiplies a miner's extraction rate.
+    #[test]
+    fn iron_pickaxe_speeds_mine_extraction() {
+        use crate::state::creatures::Good;
+        let (data, mut base) = boot_on_config_seed();
+        base.economy.food = 500.0;
+        base.creatures.clear();
+        base.spawn_creature(&data, "goblin", Job::Miner);
+        let mine = base.buildings_of("mine").next().unwrap().pos;
+
+        let mut geared = base.clone();
+        geared.creatures[0].equipment = Some("iron_pickaxe".to_owned());
+
+        for _ in 0..600 {
+            tick(&mut base, &data);
+            tick(&mut geared, &data);
+        }
+
+        let plain = base.building_at(mine).unwrap().stock(Good::Ore);
+        let boosted = geared.building_at(mine).unwrap().stock(Good::Ore);
+        assert!(plain > 1.0, "the plain miner should extract something");
+        assert!(
+            boosted > plain * 1.3,
+            "the pickaxe should visibly raise ore/min: {boosted} vs {plain}"
+        );
+    }
+
+    /// Phase 8 go/no-go loop: queue a pickaxe at the Blacksmith, a Smith
+    /// crafts it from banked ingots, and a miner picks it up on its own.
+    #[test]
+    fn blacksmith_order_crafts_gear_a_miner_equips() {
+        use crate::state::creatures::Good;
+        use crate::state::structures::Building;
+        let (data, mut session) = boot_on_config_seed();
+        session.economy.food = 500.0;
+
+        let spawn = session.spawn_tile();
+        let spot = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .filter(|(pos, _)| session.can_place_building(*pos))
+            .map(|(pos, _)| pos)
+            .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y))
+            .unwrap();
+        let mut shop = Building::new("blacksmith", spot);
+        shop.add_stock(
+            Good::Ingot,
+            data.equipment_def("iron_pickaxe").unwrap().cost_ingots as f32,
+        );
+        shop.orders.push("iron_pickaxe".to_owned());
+        session.buildings.push(shop);
+        assert!(reassign(&mut session, &data, Job::Miner, Job::Smith));
+
+        run_until(
+            &mut session,
+            &data,
+            6.0,
+            |_, _| {},
+            |s| {
+                s.creatures
+                    .iter()
+                    .any(|c| c.equipment.as_deref() == Some("iron_pickaxe"))
+            },
+        );
+
+        let equipped = session
+            .creatures
+            .iter()
+            .filter(|c| c.equipment.as_deref() == Some("iron_pickaxe"))
+            .count();
+        assert_eq!(
+            equipped, 1,
+            "exactly one miner should wear the crafted pickaxe"
+        );
+        assert!(
+            session
+                .creatures
+                .iter()
+                .find(|c| c.equipment.as_deref() == Some("iron_pickaxe"))
+                .map(|c| c.job == Job::Miner)
+                .unwrap_or(false),
+            "the pickaxe belongs to a miner"
+        );
+    }
+
+    /// A reassigned goblin drops job-mismatched gear back to the pool.
+    #[test]
+    fn reassigned_worker_drops_mismatched_gear() {
+        let (data, mut session) = boot_on_config_seed();
+        session.economy.food = 500.0;
+        session.creatures.clear();
+        session.spawn_creature(&data, "goblin", Job::Miner);
+        session.creatures[0].equipment = Some("iron_pickaxe".to_owned());
+
+        assert!(reassign(&mut session, &data, Job::Miner, Job::Carrier));
+        tick(&mut session, &data); // tick_gear drops the mismatched pickaxe
+
+        assert!(session.creatures[0].equipment.is_none());
+        assert_eq!(
+            session
+                .economy
+                .gear_stock
+                .get("iron_pickaxe")
+                .copied()
+                .unwrap_or(0),
+            1,
+            "the pickaxe returns to the stockpile pool"
+        );
+    }
+
+    /// Equipment survives a save/load roundtrip (on creatures and in the
+    /// stockpile pool).
+    #[test]
+    fn save_roundtrip_preserves_equipment() {
+        let (_data, mut session) = boot_on_config_seed();
+        session.creatures[0].equipment = Some("iron_pickaxe".to_owned());
+        session
+            .economy
+            .gear_stock
+            .insert("guard_blade".to_owned(), 2);
+
+        let json = serde_json::to_string(&session).expect("serialize");
+        let restored: GameSession = serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(
+            restored.creatures[0].equipment.as_deref(),
+            Some("iron_pickaxe")
+        );
+        assert_eq!(
+            restored.economy.gear_stock.get("guard_blade").copied(),
+            Some(2)
+        );
+    }
+
     /// Designated rock gets carved into floor by miners.
     #[test]
     fn dig_designations_get_carved_by_miners() {

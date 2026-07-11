@@ -34,7 +34,8 @@ pub fn draw(
     draw_jobs_panel(session, data, jobs_panel, mouse, &mut actions);
     draw_tools_panel(session, data, tools_panel, mode, mouse, &mut actions);
     let tutorial_panel = draw_tutorial_panel(session, data, mouse, &mut actions);
-    let inspect_panel = selected.and_then(|pos| draw_inspect_panel(session, data, pos));
+    let inspect_panel =
+        selected.and_then(|pos| draw_inspect_panel(session, data, pos, mouse, &mut actions));
 
     let victory_up = session.won && !session.victory_shown;
     let factory_up = session.factory_complete && !session.factory_shown;
@@ -467,12 +468,25 @@ fn draw_tutorial_panel(
 /// First-pass building inspection (plan §Phase 6): what a clicked building
 /// is doing right now. Phase 9 grows this into the full legibility layer.
 /// Returns its rect while a building is selected.
-fn draw_inspect_panel(session: &GameSession, data: &GameData, pos: TilePos) -> Option<Rect> {
+fn draw_inspect_panel(
+    session: &GameSession,
+    data: &GameData,
+    pos: TilePos,
+    mouse: Vec2,
+    actions: &mut Vec<UiAction>,
+) -> Option<Rect> {
     let building = session.building_at(pos)?;
     let def = data.buildings.get(&building.kind);
     let name = def.map(|d| d.name.as_str()).unwrap_or(&building.kind);
 
-    let panel = Rect::new(LOGICAL_WIDTH - 262.0, 210.0, 250.0, 132.0);
+    // The blacksmith panel carries the production-order queue and craft
+    // buttons, so it's taller.
+    let height = if building.kind == "blacksmith" {
+        150.0 + data.equipment.len() as f32 * 26.0
+    } else {
+        132.0
+    };
+    let panel = Rect::new(LOGICAL_WIDTH - 262.0, 210.0, 250.0, height);
     draw_surface_with_title(
         panel,
         Some(name),
@@ -498,7 +512,22 @@ fn draw_inspect_panel(session: &GameSession, data: &GameData, pos: TilePos) -> O
                 .and_then(|d| d.workstation.as_ref())
                 .map(|w| w.slots)
                 .unwrap_or(0);
-            let rate = data.balance.mine_ore_per_min * staffed as f32;
+            // Effective rate folds in each stationed miner's Iron Pickaxe.
+            let rate: f32 = session
+                .creatures
+                .iter()
+                .filter(|c| matches!(&c.task, Task::WorkMine(p) if *p == pos))
+                .map(|c| {
+                    let mult = c
+                        .equipment
+                        .as_deref()
+                        .and_then(|id| data.equipment_def(id))
+                        .filter(|e| e.effect == "mine_speed_mult")
+                        .map(|e| e.value)
+                        .unwrap_or(1.0);
+                    data.balance.mine_ore_per_min * mult
+                })
+                .sum();
             let (worker_txt, worker_col) = if building.reserve <= 0.0 {
                 ("Deposit exhausted".to_owned(), dark::NEGATIVE)
             } else if staffed == 0 {
@@ -544,10 +573,10 @@ fn draw_inspect_panel(session: &GameSession, data: &GameData, pos: TilePos) -> O
             line("Cooks turn mushrooms → stew", dark::TEXT_DIM, &mut y);
         }
         "blacksmith" => {
-            let staffed = session
-                .creatures
-                .iter()
-                .any(|c| matches!(&c.task, Task::Smithing { shop, .. } if *shop == pos));
+            let staffed = session.creatures.iter().any(|c| {
+                matches!(&c.task, Task::Smithing { shop, .. } if *shop == pos)
+                    || matches!(&c.task, Task::Crafting { shop, .. } if *shop == pos)
+            });
             line(
                 if staffed {
                     "Smith at work"
@@ -563,18 +592,32 @@ fn draw_inspect_panel(session: &GameSession, data: &GameData, pos: TilePos) -> O
             );
             line(
                 &format!(
-                    "Ore {:.0}  →  Ingots out {:.0}",
+                    "Ore {:.0}  Ingots {:.0}  Queue {}",
                     building.stock(Good::Ore),
-                    building.stock(Good::Ingot)
+                    building.stock(Good::Ingot),
+                    building.orders.len()
                 ),
                 dark::TEXT,
                 &mut y,
             );
-            line(
-                &format!("{} ore → 1 ingot", data.balance.smith_batch_ore),
-                dark::TEXT_DIM,
-                &mut y,
-            );
+            // Production orders: one craft button per equipment item. A
+            // queued count and how many are already banked ride in the label.
+            y += 2.0;
+            let bw = panel.w - 28.0;
+            for eq in &data.equipment {
+                let banked = session.economy.gear_stock.get(&eq.id).copied().unwrap_or(0);
+                let queued = building.orders.iter().filter(|o| **o == eq.id).count();
+                let mut label = format!("{} ({})", eq.name, eq.cost_ingots);
+                if queued > 0 {
+                    label.push_str(&format!("  ·{queued} queued"));
+                } else if banked > 0 {
+                    label.push_str(&format!("  ·{banked} ready"));
+                }
+                if hud_button(Rect::new(x, y, bw, 22.0), &label, true, mouse) {
+                    actions.push(UiAction::QueueOrder(pos, eq.id.clone()));
+                }
+                y += 26.0;
+            }
         }
         "kiln" => {
             line(

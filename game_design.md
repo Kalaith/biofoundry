@@ -74,7 +74,12 @@ set:
   ore-per-minute / buffer / remaining deposit at a glance.
 - **Attract specialists** — spend banked ore to attract a Beetle Hauler
   (25 ore) or a Salamander Smelter (20 ore).
-- **Inspect** — click creatures/buildings for status.
+- **Queue equipment** — the Blacksmith's inspection panel holds a production
+  queue; order a pickaxe/frame/hammer/blade and the Smith crafts it from
+  banked ingots. The one explicit production verb — everything else is
+  placement and job counts.
+- **Inspect** — click a building for status (a Mine's miners / ore-per-minute
+  with pickaxes folded in / buffer / deposit; a Blacksmith's ore/ingots/queue).
 - **Save/load** — F5/F9, full-simulation snapshot.
 
 Everything else — pathing, hauling priorities, eating, fighting, fleeing — is
@@ -174,6 +179,31 @@ The three chains, each of which **eats**:
      an idle salamander nibbles the den's charcoal so an ore drought can't
      starve the furnace.
 
+## 6b. Equipment: the feedback loop
+
+Ingots don't just satisfy a goal — they feed back into throughput. From
+`assets/data/equipment.json`, the Blacksmith crafts gear from banked ingots:
+
+| Item | Cost | Job | Effect |
+| --- | --- | --- | --- |
+| Iron Pickaxe | 2 ingots | Miner | Mine extraction ×1.5 |
+| Hauling Frame | 2 ingots | Carrier | Carry capacity +1 |
+| Smith's Hammer | 3 ingots | Smith | Blacksmith work time ×0.75 |
+| Guard Blade | 3 ingots | Guard | Guard DPS ×1.5 (stacks with Hardened Guards) |
+
+The loop closes: **a goblin works the Mine → a carrier hauls ore to the
+Blacksmith → the Smith forges ingots → ingots become a pickaxe → the Mine
+speeds up.** Extraction → logistics → processing → *back into extraction*,
+built entirely out of creatures — the biological answer to Factorio modules.
+
+Control stays indirect. The player **queues** a craft on the Blacksmith's
+panel (the one explicit production verb); the Smith works the queue when it
+has the ingots. Finished gear waits at the stockpile, and creatures pick up
+whatever matches their job on their own — no per-creature micromanagement. A
+reassigned goblin drops job-mismatched gear back to the pool. No durability:
+gear is a permanent upgrade, and an upgraded workforce is *visible* (a glint
+on every equipped worker).
+
 ## 7. Progression: capture → study → adapt
 
 No tech tree. `assets/data/unlocks.json` defines event-counter unlocks —
@@ -248,8 +278,8 @@ Repo-standard architecture; see `README.md` and `docs/`:
   `game_config.json`) — edit the JSON, not Rust constants.
 - UI is a pure view layer emitting `UiAction` intents; a dispatcher applies
   them. Headless capture scenes (`menu`, `warren`, `mine`, `blacksmith`,
-  `factory`, `famine`, `raid`, `breeding`, …) verify the UI without
-  interactive input.
+  `equipment`, `factory`, `famine`, `raid`, `breeding`, …) verify the UI
+  without interactive input.
 - Full save/load of the live sim (F5/F9, toolkit persistence).
 
 ## 12. Backlog / future directions

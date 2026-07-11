@@ -40,6 +40,8 @@ pub enum UiAction {
     SetMode(UiMode),
     /// The player clicked this world tile with the active tool.
     WorldClick(TilePos),
+    /// Queue an equipment craft (item id) at the blacksmith at this tile.
+    QueueOrder(TilePos, String),
     Save,
     Load,
     /// Open/close the settings panel on the title menu.
