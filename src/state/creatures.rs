@@ -8,6 +8,8 @@ pub enum Job {
     Miner,
     Carrier,
     Cook,
+    /// Hammers ore into ingots at a Blacksmith (a goblin workstation).
+    Smith,
     /// Fights off raiders; stands watch at the stockpile otherwise.
     Guard,
     /// Salamanders only: the living furnace at a smelter den.
@@ -21,6 +23,7 @@ impl Job {
             Job::Miner => "Miner",
             Job::Carrier => "Carrier",
             Job::Cook => "Cook",
+            Job::Smith => "Smith",
             Job::Guard => "Guard",
             Job::Smelter => "Smelter",
             Job::Idle => "Idle",
@@ -35,6 +38,9 @@ pub enum Good {
     Ore,
     Wood,
     Charcoal,
+    /// Forged metal — the Blacksmith and Smelter Den both output it, and
+    /// carriers bank it at the stockpile.
+    Ingot,
 }
 
 /// What a creature is currently doing. Movement is generic: while `path` is
@@ -54,6 +60,8 @@ pub enum Task {
     },
     /// Carry ore home to the stockpile.
     DeliverOre,
+    /// Carry forged ingots home to the stockpile.
+    DeliverIngot,
     /// Walking to a mushroom source (farm tile or wild patch).
     GoFetch(TilePos),
     /// Gathering a load at a source.
@@ -82,6 +90,12 @@ pub enum Task {
     GoSmelt(TilePos),
     Smelting {
         den: TilePos,
+        remaining: f32,
+    },
+    /// Walking to this blacksmith to work it.
+    GoSmith(TilePos),
+    Smithing {
+        shop: TilePos,
         remaining: f32,
     },
 }

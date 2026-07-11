@@ -86,7 +86,7 @@ pub fn tick(session: &mut GameSession, data: &GameData) -> TickReport {
     }
 
     let mut factory_this_tick = false;
-    if !session.factory_complete && session.economy.metal >= balance.win2_metal {
+    if !session.factory_complete && session.economy.ingots_forged >= balance.win2_ingots {
         session.factory_complete = true;
         factory_this_tick = true;
     }
@@ -437,6 +437,92 @@ mod tests {
         );
     }
 
+    /// A Blacksmith hammers ore into ingots at the batch rate, banking the
+    /// output in its buffer and the lifetime counter.
+    #[test]
+    fn blacksmith_forges_ingots_from_ore() {
+        use crate::state::creatures::Good;
+        use crate::state::structures::Building;
+        let (data, mut session) = boot_on_config_seed();
+        session.economy.food = 500.0;
+        session.creatures.clear(); // isolate one smith, no carriers
+
+        let spawn = session.spawn_tile();
+        let spot = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .filter(|(pos, _)| session.can_place_building(*pos))
+            .map(|(pos, _)| pos)
+            .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y))
+            .unwrap();
+        session.buildings.push(Building::new("blacksmith", spot));
+        let batches = 3;
+        let ore = data.balance.smith_batch_ore * batches;
+        session
+            .building_at_mut(spot)
+            .unwrap()
+            .add_stock(Good::Ore, ore as f32);
+        session.spawn_creature(&data, "goblin", Job::Smith);
+
+        run_until(
+            &mut session,
+            &data,
+            3.0,
+            |_, _| {},
+            |s| s.economy.ingots_forged >= batches,
+        );
+
+        assert_eq!(
+            session.economy.ingots_forged, batches,
+            "{batches} batches of {} ore each → {batches} ingots",
+            data.balance.smith_batch_ore
+        );
+        let shop = session.building_at(spot).unwrap();
+        assert!(
+            shop.stock(Good::Ingot) >= batches as f32 - 0.1,
+            "forged ingots sit in the output buffer (no carriers here)"
+        );
+        assert!(shop.stock(Good::Ore) < 1.0, "all input ore was consumed");
+    }
+
+    /// Phase 7 exit gate: on a fresh warren, a Blacksmith + one Smith turns
+    /// the Mine's ore into a banked ingot with only carriers in between.
+    #[test]
+    fn mine_blacksmith_ingot_chain_banks_an_ingot() {
+        use crate::state::structures::Building;
+        let (data, mut session) = boot_on_config_seed();
+        session.economy.food = 400.0; // keep everyone fed; isolate the loop
+
+        let spawn = session.spawn_tile();
+        let spot = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .filter(|(pos, _)| session.can_place_building(*pos))
+            .map(|(pos, _)| pos)
+            .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y))
+            .unwrap();
+        session.buildings.push(Building::new("blacksmith", spot));
+        // Two player moves: put a goblin on the anvil and free a hauler.
+        assert!(reassign(&mut session, &data, Job::Miner, Job::Smith));
+        assert!(reassign(&mut session, &data, Job::Miner, Job::Carrier));
+
+        run_until(
+            &mut session,
+            &data,
+            8.0,
+            |_, _| {},
+            |s| s.economy.ingots_stock >= 1,
+        );
+
+        assert!(
+            session.economy.ingots_stock >= 1,
+            "an ingot should reach the stockpile via mine → carrier → blacksmith → smith → carrier, banked {}",
+            session.economy.ingots_stock
+        );
+    }
+
     /// Designated rock gets carved into floor by miners.
     #[test]
     fn dig_designations_get_carved_by_miners() {
@@ -511,9 +597,9 @@ mod tests {
     }
 
     /// The charcoal chain end-to-end: kiln converts wood, salamander
-    /// claims ore + charcoal and forges metal (and eats the charcoal).
+    /// claims ore + charcoal and forges ingots (and eats the charcoal).
     #[test]
-    fn kiln_and_salamander_forge_metal() {
+    fn kiln_and_salamander_forge_ingots() {
         use crate::state::creatures::Good;
         let (data, mut session) = boot_on_config_seed();
         session.economy.food = 500.0; // not under test here
@@ -551,10 +637,13 @@ mod tests {
             &data,
             8.0,
             |_, _| {},
-            |s| s.economy.metal >= 2,
+            |s| s.economy.ingots_forged >= 2,
         );
 
-        assert!(session.economy.metal >= 2, "salamander should forge metal");
+        assert!(
+            session.economy.ingots_forged >= 2,
+            "salamander should forge ingots"
+        );
         let salamander = session
             .creatures
             .iter()
@@ -607,7 +696,7 @@ mod tests {
                         .collect();
                     eprintln!(
                         "[t={:.0}m] food={:.0} ore_bank={} metal={} won={} sites={} kiln={:?} den={:?} pop={} deserted={}",
-                        t / 60.0, s.economy.food, s.economy.ore_stock, s.economy.metal,
+                        t / 60.0, s.economy.food, s.economy.ore_stock, s.economy.ingots_forged,
                         s.won, s.build_sites.len(), kiln, den, s.creatures.len(), s.economy.deserted
                     );
                 }
@@ -722,7 +811,7 @@ mod tests {
         let minutes = done_at / 60.0;
         eprintln!(
             "[balance probe] worm awakened at {minutes:.1} sim-min ({} metal, {} deserted, {} raids survived)",
-            session.economy.metal, session.economy.deserted, session.progress.raids_survived
+            session.economy.ingots_forged, session.economy.deserted, session.progress.raids_survived
         );
         assert!(
             (25.0..=65.0).contains(&minutes),

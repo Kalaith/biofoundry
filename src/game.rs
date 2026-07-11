@@ -125,6 +125,42 @@ impl Game {
                     self.selected_building = session.buildings_of("mine").next().map(|b| b.pos);
                 }
             }
+            "blacksmith" => {
+                self.transition(StateTransition::StartWarren);
+                if let GameState::Warren(session) = &mut self.state {
+                    // The mine → blacksmith → ingot chain mid-flow: place a
+                    // blacksmith by the warren, staff a smith, keep everyone
+                    // fed, and let the ore route light up.
+                    session.tutorial_dismissed = true;
+                    session.economy.food = 200.0;
+                    let spawn = session.spawn_tile();
+                    let spot = session
+                        .world
+                        .tiles
+                        .iter_with_pos()
+                        .filter(|(pos, _)| session.can_place_building(*pos))
+                        .map(|(pos, _)| pos)
+                        .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y));
+                    if let Some(spot) = spot {
+                        session
+                            .buildings
+                            .push(crate::state::structures::Building::new("blacksmith", spot));
+                    }
+                    // Free two miners to haul, and put one on the anvil.
+                    let species = &self.data.species;
+                    session.reassign(Job::Miner, Job::Carrier, |s| {
+                        species.get(s).map(|d| d.reassignable).unwrap_or(false)
+                    });
+                    session.reassign(Job::Miner, Job::Smith, |s| {
+                        species.get(s).map(|d| d.reassignable).unwrap_or(false)
+                    });
+                    for _ in 0..500 {
+                        simulation::tick(session, &self.data);
+                    }
+                    self.selected_building =
+                        session.buildings_of("blacksmith").next().map(|b| b.pos);
+                }
+            }
             "famine" => {
                 self.transition(StateTransition::StartWarren);
                 if let GameState::Warren(session) = &mut self.state {
@@ -212,7 +248,7 @@ impl Game {
                             .buildings
                             .push(crate::state::structures::Building::new("worm_shrine", spot));
                     }
-                    session.economy.metal = self.data.balance.win2_metal;
+                    session.economy.ingots_forged = self.data.balance.win2_ingots;
                     session.won = true;
                     session.victory_shown = true;
                     session.factory_complete = true;

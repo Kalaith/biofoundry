@@ -300,7 +300,7 @@ fn grant_unlocks(session: &mut GameSession, data: &GameData, report: &mut WildRe
 /// Session-wide counter lookup: progression counters plus economy stats.
 fn counter_value(session: &GameSession, name: &str) -> u32 {
     match name {
-        "metal_forged" => session.economy.metal,
+        "ingots_forged" => session.economy.ingots_forged,
         other => session.progress.counter(other),
     }
 }

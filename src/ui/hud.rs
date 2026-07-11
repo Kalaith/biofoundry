@@ -26,8 +26,8 @@ pub fn draw(
 
     let top_bar = Rect::new(12.0, 12.0, LOGICAL_WIDTH - 24.0, 48.0);
     let food_panel = Rect::new(12.0, 66.0, PANEL_W, 184.0);
-    let jobs_panel = Rect::new(12.0, 256.0, PANEL_W, 230.0);
-    let tools_panel = Rect::new(12.0, 492.0, PANEL_W, 200.0);
+    let jobs_panel = Rect::new(12.0, 256.0, PANEL_W, 262.0);
+    let tools_panel = Rect::new(12.0, 522.0, PANEL_W, 190.0);
 
     draw_top_bar(session, top_bar, mouse, &mut actions);
     draw_food_grid_panel(session, data, food_panel);
@@ -55,8 +55,8 @@ pub fn draw(
         draw_goal_overlay(
             "Factory Complete",
             &format!(
-                "The Biofoundry roars: {} metal forged by living furnaces in {:.0} minutes.\n\nEvery belt breathes. Keep playing, or return to the menu.",
-                session.economy.metal,
+                "The Biofoundry roars: {} ingots forged by hammer and living furnace in {:.0} minutes.\n\nEvery belt breathes. Keep playing, or return to the menu.",
+                session.economy.ingots_forged,
                 simulation::sim_seconds(session) / 60.0
             ),
             UiAction::DismissFactory,
@@ -67,10 +67,10 @@ pub fn draw(
         draw_goal_overlay(
             "Victory",
             &format!(
-                "The warren thrives: a 100-food surplus and {} ore delivered in {:.0} minutes.\n\nNext: build a Charcoal Kiln and Smelter Den, then attract a salamander to forge {} metal.",
+                "The warren thrives: a 100-food surplus and {} ore delivered in {:.0} minutes.\n\nNext: place a Blacksmith and hammer ore into {} ingots (a Smelter Den + salamander forges them in bulk).",
                 session.economy.ore_delivered_total,
                 simulation::sim_seconds(session) / 60.0,
-                data.balance.win2_metal
+                data.balance.win2_ingots
             ),
             UiAction::DismissVictory,
             mouse,
@@ -145,6 +145,22 @@ fn draw_top_bar(session: &GameSession, bar: Rect, mouse: Vec2, actions: &mut Vec
         mouse,
     ) {
         actions.push(UiAction::BackToMenu);
+    }
+    if hud_button(
+        Rect::new(bar.right() - 254.0, bar.y + 8.0, 74.0, 32.0),
+        "Save F5",
+        true,
+        mouse,
+    ) {
+        actions.push(UiAction::Save);
+    }
+    if hud_button(
+        Rect::new(bar.right() - 176.0, bar.y + 8.0, 74.0, 32.0),
+        "Load F9",
+        true,
+        mouse,
+    ) {
+        actions.push(UiAction::Load);
     }
 }
 
@@ -235,7 +251,7 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
         TextStyle::new(14.0, dark::TEXT).params(),
     );
     y += 20.0;
-    let metal_color = if session.economy.metal > 0 {
+    let ingot_color = if session.economy.ingots_forged > 0 {
         dark::TEXT
     } else {
         dark::TEXT_DIM
@@ -253,16 +269,17 @@ fn draw_food_grid_panel(session: &GameSession, data: &GameData, panel: Rect) {
     };
     draw_ui_text_ex(
         &format!(
-            "Metal {}/{} · Captured {} · Raids {}{}",
-            session.economy.metal,
-            data.balance.win2_metal,
+            "Ingots {}/{} (banked {}) · Captured {} · Raids {}{}",
+            session.economy.ingots_forged,
+            data.balance.win2_ingots,
+            session.economy.ingots_stock,
             session.progress.beetles_captured,
             session.progress.raids_survived,
             worm_note
         ),
         x,
         y,
-        TextStyle::new(14.0, metal_color).params(),
+        TextStyle::new(14.0, ingot_color).params(),
     );
 }
 
@@ -284,7 +301,7 @@ fn draw_jobs_panel(
     let x = panel.x + 14.0;
     let mut y = panel.y + 44.0;
 
-    for job in [Job::Miner, Job::Carrier, Job::Cook, Job::Guard] {
+    for job in [Job::Miner, Job::Carrier, Job::Cook, Job::Smith, Job::Guard] {
         let count = session.job_count(job);
         draw_ui_text_ex(
             &format!("{:<8}{count}", job.label()),
@@ -381,16 +398,16 @@ fn draw_tools_panel(
                 format!("{short} 🔒")
             };
             let bx = x + (half + 8.0) * i as f32;
-            if hud_button(Rect::new(bx, y, half, 24.0), &label, unlocked, mouse) {
+            if hud_button(Rect::new(bx, y, half, 22.0), &label, unlocked, mouse) {
                 actions.push(UiAction::SetMode(UiMode::Build((*id).clone())));
             }
         }
-        y += 28.0;
+        y += 26.0;
     }
 
     let dig_active = *mode == UiMode::Dig;
     let dig_label = if dig_active { "▶ Dig" } else { "Dig" };
-    if hud_button(Rect::new(x, y, half, 24.0), dig_label, true, mouse) {
+    if hud_button(Rect::new(x, y, half, 22.0), dig_label, true, mouse) {
         actions.push(UiAction::SetMode(UiMode::Dig));
     }
     // Show pending construction so hauling progress is visible.
@@ -399,22 +416,9 @@ fn draw_tools_panel(
         draw_ui_text_ex(
             &format!("{} site(s) · {} ore", session.build_sites.len(), pending),
             x + half + 8.0,
-            y + 17.0,
+            y + 16.0,
             TextStyle::new(13.0, dark::TEXT_DIM).params(),
         );
-    }
-    y += 28.0;
-
-    if hud_button(Rect::new(x, y, half, 24.0), "Save (F5)", true, mouse) {
-        actions.push(UiAction::Save);
-    }
-    if hud_button(
-        Rect::new(x + half + 8.0, y, half, 24.0),
-        "Load (F9)",
-        true,
-        mouse,
-    ) {
-        actions.push(UiAction::Load);
     }
 }
 
@@ -538,6 +542,39 @@ fn draw_inspect_panel(session: &GameSession, data: &GameData, pos: TilePos) -> O
                 &mut y,
             );
             line("Cooks turn mushrooms → stew", dark::TEXT_DIM, &mut y);
+        }
+        "blacksmith" => {
+            let staffed = session
+                .creatures
+                .iter()
+                .any(|c| matches!(&c.task, Task::Smithing { shop, .. } if *shop == pos));
+            line(
+                if staffed {
+                    "Smith at work"
+                } else {
+                    "No smith — idle"
+                },
+                if staffed {
+                    dark::POSITIVE
+                } else {
+                    dark::WARNING
+                },
+                &mut y,
+            );
+            line(
+                &format!(
+                    "Ore {:.0}  →  Ingots out {:.0}",
+                    building.stock(Good::Ore),
+                    building.stock(Good::Ingot)
+                ),
+                dark::TEXT,
+                &mut y,
+            );
+            line(
+                &format!("{} ore → 1 ingot", data.balance.smith_batch_ore),
+                dark::TEXT_DIM,
+                &mut y,
+            );
         }
         "kiln" => {
             line(

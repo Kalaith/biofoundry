@@ -23,7 +23,7 @@ What it takes from each tradition:
 | From factory builders (Factorio) | From colony sims (RimWorld / DF) |
 | --- | --- |
 | A production/consumption ledger you optimize (the food grid HUD is a power graph) | Indirect control: you designate, assign, and place — creatures decide how |
-| Production chains (ore → metal via wood → charcoal → smelter) | Workers with needs, hunger states, and desertion |
+| Production chains (ore → ingots via the blacksmith, or wood → charcoal → smelter) | Workers with needs, hunger states, and desertion |
 | Buildings as throughput nodes with input/output rates | Emergent crises: famine spirals, raids on the larder |
 | Explicit "factory complete" style goals | A living map: wild creatures wander in, capture/study progression |
 
@@ -49,7 +49,7 @@ makes the automation itself alive.
    blackout. The HUD surfaces this exactly like a power UI.
 3. **Progression is biological.** No research tree. Unlocks fire from event
    counters on things the player already does: capture creatures, survive
-   crises, forge metal.
+   crises, forge ingots.
 4. **Ecosystem pressure.** The world pushes back — wild beetles wander in,
    gnarl raiders eat your larder, and your own hungry guards can desert at the
    worst moment. Failure is ecological, and always telegraphed by the meter.
@@ -126,8 +126,9 @@ All species live in `assets/data/species.json`.
 
 Jobs (goblins only): **Miner** (claims a slot at a Mine and extracts ore into
 its buffer; also carves dig designations to expand the warren), **Carrier**
-(hauls mushrooms, mine ore, wood, charcoal, and building materials), **Cook**
-(runs the pot), **Guard** (8 DPS,
+(hauls mushrooms, mine ore, ingots, wood, charcoal, and building materials),
+**Cook** (runs the pot), **Smith** (claims a Blacksmith and hammers ore into
+ingots; eats cook-tier), **Guard** (8 DPS,
 patrols the stockpile, intercepts raiders; fed creatures regenerate HP —
 starving guards lose fights), **Idle** (reserve pool, half upkeep).
 
@@ -141,12 +142,13 @@ deliver materials. From `assets/data/buildings.json`:
 | Mushroom Farm | 10 | Grows mushrooms (food chain input). |
 | Ore Mine | 12 | *Workstation.* Placed beside an ore vein; a stationed miner extracts ore into a local buffer that carriers drain to the stockpile. Finite (but generous) deposit. |
 | Cook Pot | 8 | Mushrooms → stew (the calorie multiplier). |
+| Blacksmith | 8 | *Workstation.* A goblin Smith hammers ore → ingots (3 ore → 1 ingot). No charcoal, no unlock — the first processing node, live from the early minutes. Deliberately ore-inefficient so the smelter stays the bulk upgrade. |
 | Charcoal Kiln | 12 | Sporewood → charcoal, 3/min (wood cap 8). |
-| Smelter Den | 15 | Salamander workstation: 1 ore + 1 charcoal → 1 metal per 10 s batch. |
+| Smelter Den | 15 | Salamander workstation: 1 ore + 1 charcoal → 1 ingot per 10 s batch — the bulk (ore-efficient) forge. |
 | Snare Trap | 6 | Single-use wild-beetle capture. |
 | Study Pen | 12 | Captured specimens generate knowledge (1/min each) and drive unlock counters. |
 | Breeding Pit | 20 | *Unlocked by studying beetles.* Hatches free beetle haulers every 150 s (cap 3). |
-| Worm Shrine | 20 | *Unlocked by forging 20 metal.* The campaign monument (see §8). |
+| Worm Shrine | 20 | *Unlocked by forging 20 ingots.* The campaign monument (see §8). |
 | Stockpile | — | The battery/larder (starts on the map; raid target). |
 
 The three chains, each of which **eats**:
@@ -159,12 +161,18 @@ The three chains, each of which **eats**:
    buildings and attracting specialists. Extraction runs itself: place a mine,
    a goblin claims a slot, ore flows — the first live automation loop. Digging
    stays the expansion verb that opens fresh veins to mine.
-3. **Metal (the diet chain):** sporewood groves (regrow ~45 s) → carriers haul
-   wood → kiln smoulders charcoal → salamander eats the charcoal *as its
-   smelting fuel* → metal. Industry depends on forestry depends on hauling
-   depends on food — the mid-game complexity curve in one chain. Smelters draw
-   banked ore only above a 12-ore reserve (with an emergency trickle) so
-   endless metal can't starve construction.
+3. **Ingots (the forge chains):** two forges make ingots, banked at the
+   stockpile and counted toward the factory goal.
+   - *Blacksmith (early):* a goblin Smith hammers banked ore into ingots
+     (3 ore → 1 ingot) — no fuel, live from minute ~4. Ore-hungry by design.
+   - *Smelter Den (bulk upgrade):* sporewood groves (regrow ~45 s) → carriers
+     haul wood → kiln smoulders charcoal → salamander eats the charcoal *as
+     its smelting fuel* → 1 ore + 1 charcoal → 1 ingot. Industry depends on
+     forestry depends on hauling depends on food — the mid-game complexity
+     curve in one chain. Smelters draw banked ore only above a 12-ore reserve
+     (with an emergency trickle) so endless smelting can't starve construction;
+     an idle salamander nibbles the den's charcoal so an ore drought can't
+     starve the furnace.
 
 ## 7. Progression: capture → study → adapt
 
@@ -176,7 +184,7 @@ progression is a side effect of playing, and crises double as gates:
 | Beetles captured | 2 | **Beetle Breeding Pit** (free hauler production) |
 | Raids survived | 1 | **Hardened Guards** (guard DPS ×1.5) |
 | Famines survived | 1 | **Preservation Techniques** (farm storage ×1.5) |
-| Metal forged | 20 | **Worm Shrine** (the endgame) |
+| Ingots forged | 20 | **Worm Shrine** (the endgame) |
 
 The capture loop: wild beetles wander the map → place snare traps in their
 path → captured specimens go to Study Pens → knowledge accumulates → counters
@@ -196,7 +204,7 @@ desertion ↔ raid loss spiral is the game's failure state.
 | --- | --- | --- |
 | First famine | 5.5 min | Read the meter, reassign jobs. |
 | **Warren Secured** (win 1) | ~15 min | Hold a 100-food surplus + deliver 50 ore. |
-| **Factory Complete** (win 2) | ~26 min | Build the charcoal chain, forge 20 metal. |
+| **Factory Complete** (win 2) | ~26 min | Place a Blacksmith (and the bulk smelter chain), forge 20 ingots. |
 | **Worm Awakened** (campaign) | ~49 min | Build the Worm Shrine; feed the Colossal Worm 60 food of offerings. |
 
 The Worm Shrine is the endgame stress test: the worm demands offerings at
@@ -239,8 +247,9 @@ Repo-standard architecture; see `README.md` and `docs/`:
   `species.json`, `buildings.json`, `unlocks.json`, `tutorial.json`,
   `game_config.json`) — edit the JSON, not Rust constants.
 - UI is a pure view layer emitting `UiAction` intents; a dispatcher applies
-  them. Headless capture scenes (`menu`, `warren`, `mine`, `factory`,
-  `famine`, `raid`, `breeding`, …) verify the UI without interactive input.
+  them. Headless capture scenes (`menu`, `warren`, `mine`, `blacksmith`,
+  `factory`, `famine`, `raid`, `breeding`, …) verify the UI without
+  interactive input.
 - Full save/load of the live sim (F5/F9, toolkit persistence).
 
 ## 12. Backlog / future directions

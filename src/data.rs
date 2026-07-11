@@ -93,6 +93,13 @@ pub struct Balance {
     pub smelt_batch_time_sec: f32,
     /// Carriers keep each smelter's ore stock topped up to this level.
     pub smelter_ore_target: u32,
+    /// Blacksmith recipe: ore per ingot batch. Deliberately worse per-ore
+    /// than the salamander smelter (labour-only, no charcoal), so the
+    /// charcoal chain stays the mid-game throughput upgrade.
+    pub smith_batch_ore: u32,
+    pub smith_batch_time_sec: f32,
+    /// Carriers keep each blacksmith's ore stock topped up to this level.
+    pub blacksmith_ore_target: u32,
     /// Smelter refills only draw from bank above this reserve, so endless
     /// metal never starves construction of ore.
     pub smelter_bank_reserve: u32,
@@ -131,8 +138,8 @@ pub struct Balance {
     pub famine_recover_food: f32,
     pub win_food_surplus: f32,
     pub win_ore_delivered: u32,
-    /// Metal to forge for the extended "Factory Complete" goal.
-    pub win2_metal: u32,
+    /// Ingots to forge for the extended "Factory Complete" goal.
+    pub win2_ingots: u32,
     /// The awakened worm's appetite: the final power draw on the grid.
     pub worm_food_per_min: f32,
     /// Offerings pause below this food level so feeding can't blackout

@@ -22,6 +22,14 @@
     "requires_unlock": null
   },
   {
+    "id": "blacksmith",
+    "name": "Blacksmith",
+    "cost_ore": 8,
+    "buildable": true,
+    "requires_unlock": null,
+    "workstation": { "job": "smith", "slots": 1 }
+  },
+  {
     "id": "kiln",
     "name": "Charcoal Kiln",
     "cost_ore": 12,

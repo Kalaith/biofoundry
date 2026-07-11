@@ -23,7 +23,7 @@
     "id": "worm_shrine",
     "name": "Worm Shrine",
     "description": "The forge-song echoes deep. Something vast stirs below. Unlocks the Worm Shrine.",
-    "counter": "metal_forged",
+    "counter": "ingots_forged",
     "threshold": 20,
     "effect": "unlock_building",
     "value": 0.0,

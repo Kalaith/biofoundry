@@ -207,6 +207,56 @@ fn draw_building(session: &GameSession, data: &GameData, building: &Building, ts
                 draw_circle(cx, cy, ts * 0.14, Color::new(0.85, 0.75, 0.55, 1.0));
             }
         }
+        "blacksmith" => {
+            // An anvil block on a stone base; an ore pip and an ingot pip
+            // show the input/output buffers.
+            draw_rectangle(
+                x + 3.0,
+                y + 3.0,
+                ts - 6.0,
+                ts - 6.0,
+                Color::new(0.20, 0.19, 0.22, 1.0),
+            );
+            draw_rectangle_lines(
+                x + 3.0,
+                y + 3.0,
+                ts - 6.0,
+                ts - 6.0,
+                2.0,
+                Color::new(0.62, 0.64, 0.70, 0.9),
+            );
+            // Anvil silhouette.
+            draw_rectangle(
+                x + ts * 0.30,
+                y + ts * 0.44,
+                ts * 0.40,
+                ts * 0.12,
+                Color::new(0.45, 0.47, 0.52, 1.0),
+            );
+            draw_rectangle(
+                x + ts * 0.42,
+                y + ts * 0.54,
+                ts * 0.16,
+                ts * 0.14,
+                Color::new(0.45, 0.47, 0.52, 1.0),
+            );
+            if building.stock(Good::Ore) >= 1.0 {
+                draw_circle(
+                    x + ts * 0.28,
+                    y + ts * 0.30,
+                    ts * 0.08,
+                    Color::new(0.75, 0.62, 0.35, 1.0),
+                );
+            }
+            if building.stock(Good::Ingot) >= 1.0 {
+                draw_circle(
+                    x + ts * 0.72,
+                    y + ts * 0.30,
+                    ts * 0.08,
+                    Color::new(0.80, 0.82, 0.88, 1.0),
+                );
+            }
+        }
         "mine" => {
             // A dark stone housing with an ore-hued mouth; a pile of dots
             // shows the local buffer, greyed out once the deposit runs dry.
@@ -299,6 +349,14 @@ fn draw_building(session: &GameSession, data: &GameData, building: &Building, ts
                     y + ts * 0.32,
                     ts * 0.09,
                     Color::new(0.15, 0.15, 0.16, 1.0),
+                );
+            }
+            if building.stock(Good::Ingot) >= 1.0 {
+                draw_circle(
+                    x + ts * 0.5,
+                    y + ts * 0.68,
+                    ts * 0.09,
+                    Color::new(0.80, 0.82, 0.88, 1.0),
                 );
             }
         }
@@ -492,6 +550,7 @@ fn draw_creature(creature: &Creature, ts: f32) {
             crate::state::creatures::Good::Ore => Color::new(0.75, 0.62, 0.35, 1.0),
             crate::state::creatures::Good::Wood => Color::new(0.55, 0.42, 0.28, 1.0),
             crate::state::creatures::Good::Charcoal => Color::new(0.15, 0.15, 0.16, 1.0),
+            crate::state::creatures::Good::Ingot => Color::new(0.80, 0.82, 0.88, 1.0),
         };
         draw_circle(x, y - radius * 0.9, ts * 0.09, color);
     }
@@ -505,6 +564,7 @@ fn creature_color(creature: &Creature) -> Color {
             Job::Miner => Color::new(0.45, 0.62, 0.85, 1.0),
             Job::Carrier => Color::new(0.85, 0.75, 0.38, 1.0),
             Job::Cook => Color::new(0.88, 0.52, 0.28, 1.0),
+            Job::Smith => Color::new(0.70, 0.72, 0.80, 1.0),
             Job::Guard => Color::new(0.72, 0.30, 0.30, 1.0),
             Job::Smelter => Color::new(0.92, 0.35, 0.18, 1.0),
             Job::Idle => Color::new(0.55, 0.55, 0.58, 1.0),

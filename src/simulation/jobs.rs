@@ -64,6 +64,7 @@ fn tick_creature(
         Job::Miner => tick_miner(creature, session, data, dt, claims),
         Job::Carrier => tick_carrier(creature, session, data, &species, dt),
         Job::Cook => tick_cook(creature, session, data, dt),
+        Job::Smith => tick_smith(creature, session, data, dt),
         Job::Guard => tick_guard(creature, session, data, dt),
         Job::Smelter => tick_smelter(creature, session, data, dt),
     }
@@ -272,9 +273,17 @@ fn tick_carrier(
                 return;
             }
             harvest_source(creature, session, data, species, source);
-            // Ore only comes from Mines; it always banks at the stockpile.
+            // Ore (from a Mine) and ingots (from a forge) always bank at the
+            // stockpile; other goods route through the normal chain.
             if creature.carried(Good::Ore) > 0 {
                 send_to(creature, session, session.stockpile_pos(), Task::DeliverOre);
+            } else if creature.carried(Good::Ingot) > 0 {
+                send_to(
+                    creature,
+                    session,
+                    session.stockpile_pos(),
+                    Task::DeliverIngot,
+                );
             } else {
                 creature.task = Task::Idle;
             }
@@ -317,6 +326,13 @@ fn tick_carrier(
             }
             creature.task = Task::Idle;
         }
+        Task::DeliverIngot => {
+            if creature.tile() == session.stockpile_pos() {
+                let n = creature.take_carried(Good::Ingot, u32::MAX);
+                session.economy.ingots_stock += n;
+            }
+            creature.task = Task::Idle;
+        }
         _ => creature.task = Task::Idle,
     }
 }
@@ -338,6 +354,15 @@ fn choose_carrier_work(
         } else {
             send_to(creature, session, session.stockpile_pos(), Task::DeliverOre);
         }
+        return;
+    }
+    if creature.carried(Good::Ingot) > 0 {
+        send_to(
+            creature,
+            session,
+            session.stockpile_pos(),
+            Task::DeliverIngot,
+        );
         return;
     }
     if creature.carried(Good::Wood) > 0 {
@@ -459,7 +484,7 @@ fn try_mine_drain(creature: &mut Creature, session: &mut GameSession) -> bool {
 /// Construction ore, smelter supply, charcoal, and wood runs — the
 /// *finite* industry sinks. Returns true when a task was started.
 fn try_industry_chain(creature: &mut Creature, session: &mut GameSession, data: &GameData) -> bool {
-    // Ore runs: build sites and hungry smelters, from the bank.
+    // Ore runs: build sites, blacksmiths, and hungry smelters, from the bank.
     if session.economy.ore_stock > 0 && ore_wanted(session, data) > 0 {
         send_to(
             creature,
@@ -468,6 +493,21 @@ fn try_industry_chain(creature: &mut Creature, session: &mut GameSession, data: 
             Task::GoPickupOre,
         );
         return true;
+    }
+
+    // Ingot runs: forge output back to the stockpile.
+    if let Some(forge) = nearest_building_where(creature, session, "blacksmith", |b| {
+        b.stock(Good::Ingot) >= 1.0
+    })
+    .or_else(|| {
+        nearest_building_where(creature, session, "smelter", |b| {
+            b.stock(Good::Ingot) >= 1.0
+        })
+    }) {
+        if set_path(creature, session, forge) {
+            creature.task = Task::GoFetch(forge);
+            return true;
+        }
     }
 
     // Charcoal runs: kiln output to smelters.
@@ -498,8 +538,17 @@ fn try_industry_chain(creature: &mut Creature, session: &mut GameSession, data: 
     false
 }
 
-/// Where should carried ore go: an unfinished site, else a smelter under
-/// its ore target.
+/// Ore target for an ore-consuming forge, or None if it isn't one.
+fn forge_ore_target(kind: &str, data: &GameData) -> Option<u32> {
+    match kind {
+        "blacksmith" => Some(data.balance.blacksmith_ore_target),
+        "smelter" => Some(data.balance.smelter_ore_target),
+        _ => None,
+    }
+}
+
+/// Where should carried ore go: an unfinished site, else the nearest forge
+/// (blacksmith or smelter) under its ore target.
 fn ore_destination(creature: &Creature, session: &GameSession, data: &GameData) -> Option<TilePos> {
     let from = creature.tile();
     if let Some(site) = session
@@ -512,17 +561,29 @@ fn ore_destination(creature: &Creature, session: &GameSession, data: &GameData) 
         return Some(site);
     }
     session
-        .buildings_of("smelter")
-        .filter(|b| (b.stock(Good::Ore) as u32) < data.balance.smelter_ore_target)
+        .buildings
+        .iter()
+        .filter(|b| {
+            forge_ore_target(&b.kind, data).is_some_and(|t| (b.stock(Good::Ore) as u32) < t)
+        })
         .map(|b| b.pos)
         .min_by_key(|p| (p.manhattan_distance(&from), p.x, p.y))
 }
 
-/// Total ore the warren wants moved: site remainders plus smelter
-/// top-ups. Smelters only draw when the bank is above its reserve, so
-/// endless metal-making can't starve construction.
+/// Total ore the warren wants moved: site remainders, blacksmith top-ups,
+/// and smelter top-ups. The blacksmith is the primary early forge so it's
+/// fed freely; smelters only draw above the bank reserve (with an emergency
+/// trickle), so endless salamander smelting can't starve construction.
 fn ore_wanted(session: &GameSession, data: &GameData) -> u32 {
     let sites: u32 = session.build_sites.iter().map(|s| s.remaining()).sum();
+    let blacksmiths: u32 = session
+        .buildings_of("blacksmith")
+        .map(|b| {
+            data.balance
+                .blacksmith_ore_target
+                .saturating_sub(b.stock(Good::Ore) as u32)
+        })
+        .sum();
     let smelters: u32 = if session.economy.ore_stock > data.balance.smelter_bank_reserve {
         session
             .buildings_of("smelter")
@@ -540,7 +601,7 @@ fn ore_wanted(session: &GameSession, data: &GameData) -> u32 {
             .map(|b| 2u32.saturating_sub(b.stock(Good::Ore) as u32))
             .sum()
     };
-    sites + smelters
+    sites + blacksmiths + smelters
 }
 
 /// What a fetch at this tile would yield right now.
@@ -550,6 +611,8 @@ fn fetchable_good(session: &GameSession, source: TilePos) -> Option<Good> {
             "farm" if building.stock(Good::Mushroom) >= 1.0 => Some(Good::Mushroom),
             "mine" if building.stock(Good::Ore) >= 1.0 => Some(Good::Ore),
             "kiln" if building.stock(Good::Charcoal) >= 1.0 => Some(Good::Charcoal),
+            // The forges emit ingots into their output buffer.
+            "blacksmith" | "smelter" if building.stock(Good::Ingot) >= 1.0 => Some(Good::Ingot),
             _ => None,
         };
     }
@@ -623,6 +686,10 @@ fn drop_load(creature: &mut Creature, session: &mut GameSession, data: &GameData
         "kiln" => {
             let n = creature.take_carried(Good::Wood, u32::MAX);
             building.add_stock(Good::Wood, n as f32);
+        }
+        "blacksmith" => {
+            let ore = creature.take_carried(Good::Ore, u32::MAX);
+            building.add_stock(Good::Ore, ore as f32);
         }
         "smelter" => {
             let ore = creature.take_carried(Good::Ore, u32::MAX);
@@ -824,7 +891,66 @@ fn tick_smelter(creature: &mut Creature, session: &mut GameSession, data: &GameD
                     remaining: left,
                 };
             } else {
-                session.economy.metal += 1;
+                // A forged ingot lands in the den's output buffer; carriers
+                // bank it. The lifetime counter drives win 2 / the shrine.
+                if let Some(building) = session.building_at_mut(den) {
+                    building.add_stock(Good::Ingot, 1.0);
+                }
+                session.economy.ingots_forged += 1;
+                creature.task = Task::Idle;
+            }
+        }
+        _ => creature.task = Task::Idle,
+    }
+}
+
+// ---------------------------------------------------------------- smiths
+
+/// Goblin smiths: a Blacksmith workstation hammers ore into ingots — the
+/// first processing node, live from the early minutes. Deliberately worse
+/// per-ore than the salamander smelter (labour-only, no charcoal), so the
+/// charcoal chain stays the bulk upgrade.
+fn tick_smith(creature: &mut Creature, session: &mut GameSession, data: &GameData, dt: f32) {
+    let b = &data.balance;
+    match creature.task.clone() {
+        Task::Idle => {
+            let ready = nearest_building_where(creature, session, "blacksmith", |shop| {
+                shop.stock(Good::Ore) >= b.smith_batch_ore as f32
+            });
+            if let Some(shop) = ready {
+                if creature.tile() == shop {
+                    if let Some(building) = session.building_at_mut(shop) {
+                        building.take_stock(Good::Ore, b.smith_batch_ore as f32);
+                        creature.task = Task::Smithing {
+                            shop,
+                            remaining: b.smith_batch_time_sec,
+                        };
+                    }
+                } else {
+                    send_to(creature, session, shop, Task::GoSmith(shop));
+                }
+                return;
+            }
+            // No ore to work: wait at the nearest blacksmith.
+            if let Some(shop) = nearest_building(creature, session, "blacksmith") {
+                if creature.tile() != shop {
+                    send_to(creature, session, shop, Task::GoSmith(shop));
+                }
+            }
+        }
+        Task::GoSmith(_) => creature.task = Task::Idle,
+        Task::Smithing { shop, remaining } => {
+            let left = remaining - dt * creature.work_speed();
+            if left > 0.0 {
+                creature.task = Task::Smithing {
+                    shop,
+                    remaining: left,
+                };
+            } else {
+                if let Some(building) = session.building_at_mut(shop) {
+                    building.add_stock(Good::Ingot, 1.0);
+                }
+                session.economy.ingots_forged += 1;
                 creature.task = Task::Idle;
             }
         }

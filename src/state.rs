@@ -42,8 +42,14 @@ pub struct Economy {
     pub ore_stock: u32,
     /// Lifetime ore delivered (win condition counter; never spent).
     pub ore_delivered_total: u32,
-    /// Metal forged by salamanders (extended-goal counter).
-    pub metal: u32,
+    /// Lifetime ingots forged by the Blacksmith and Smelter Den (the
+    /// extended-goal counter; never spent). `metal` alias migrates
+    /// pre-Phase-7 saves.
+    #[serde(alias = "metal")]
+    pub ingots_forged: u32,
+    /// Ingots banked at the stockpile, spendable on equipment (Phase 8).
+    #[serde(default)]
+    pub ingots_stock: u32,
     /// Creatures lost to starvation desertion (blackout consequence).
     pub deserted: u32,
     /// Workers killed defending the warren.
@@ -78,7 +84,7 @@ pub struct GameSession {
     pub vein_ore: HashMap<TilePos, u32>,
     pub won: bool,
     pub victory_shown: bool,
-    /// Extended goal: the smelting chain forged `win2_metal` metal.
+    /// Extended goal: the forges made `win2_ingots` ingots.
     pub factory_complete: bool,
     pub factory_shown: bool,
     /// Fauna the player didn't hire (wild beetles, raiders).
@@ -147,7 +153,8 @@ impl GameSession {
                 food: balance.start_food,
                 ore_stock: 0,
                 ore_delivered_total: 0,
-                metal: 0,
+                ingots_forged: 0,
+                ingots_stock: 0,
                 deserted: 0,
                 killed: 0,
                 production_ema_per_min: 0.0,
@@ -304,7 +311,7 @@ impl GameSession {
     pub fn upkeep_per_min(creature: &Creature, base: f32, balance: &Balance) -> f32 {
         match creature.job {
             Job::Idle => base * balance.idle_upkeep_factor,
-            Job::Cook => base * balance.cook_upkeep_factor,
+            Job::Cook | Job::Smith => base * balance.cook_upkeep_factor,
             Job::Guard => base * balance.guard_upkeep_factor,
             _ => base,
         }
