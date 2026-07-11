@@ -155,6 +155,35 @@ pub fn try_attract_salamander(session: &mut GameSession, data: &GameData) -> boo
     true
 }
 
+/// Breed a Hobgoblin at the Breeding Pit — a heavyweight worker (×2 work
+/// speed, ×2.5 upkeep). Gated on the ingot unlock and paid in banked ingots.
+pub fn try_breed_hobgoblin(session: &mut GameSession, data: &GameData) -> bool {
+    if !session.unlocked.contains("hobgoblin")
+        || session.buildings_of("breeding_pit").next().is_none()
+        || session.economy.ingots_stock < data.balance.hobgoblin_ingot_cost
+    {
+        return false;
+    }
+    session.economy.ingots_stock -= data.balance.hobgoblin_ingot_cost;
+    session.spawn_creature(data, "hobgoblin", crate::state::creatures::Job::Idle);
+    true
+}
+
+/// Breed a Goblin Overseer — the living beacon that speeds every worker in
+/// its aura. One at a time (one per district). Paid in banked ingots.
+pub fn try_breed_overseer(session: &mut GameSession, data: &GameData) -> bool {
+    if !session.unlocked.contains("overseer")
+        || session.buildings_of("breeding_pit").next().is_none()
+        || session.creatures.iter().any(|c| c.species == "overseer")
+        || session.economy.ingots_stock < data.balance.overseer_ingot_cost
+    {
+        return false;
+    }
+    session.economy.ingots_stock -= data.balance.overseer_ingot_cost;
+    session.spawn_creature(data, "overseer", crate::state::creatures::Job::Idle);
+    true
+}
+
 /// Place a construction ghost. Returns false when the spot or kind is
 /// invalid; carriers deliver the ore and finish it.
 pub fn try_place_build_site(
@@ -665,6 +694,108 @@ mod tests {
             restored.economy.gear_stock.get("guard_blade").copied(),
             Some(2)
         );
+    }
+
+    /// A Hobgoblin's ×2 work multiplier makes it out-mine a goblin.
+    #[test]
+    fn hobgoblin_out_mines_a_goblin() {
+        use crate::state::creatures::Good;
+        let (data, mut a) = boot_on_config_seed();
+        a.economy.food = 500.0;
+        a.creatures.clear();
+        a.spawn_creature(&data, "goblin", Job::Miner);
+        let mine = a.buildings_of("mine").next().unwrap().pos;
+
+        let mut b = boot_on_config_seed().1;
+        b.economy.food = 500.0;
+        b.creatures.clear();
+        b.spawn_creature(&data, "hobgoblin", Job::Miner);
+
+        for _ in 0..600 {
+            tick(&mut a, &data);
+            tick(&mut b, &data);
+        }
+        let goblin_ore = a.building_at(mine).unwrap().stock(Good::Ore);
+        let hob_ore = b.building_at(mine).unwrap().stock(Good::Ore);
+        assert!(goblin_ore > 1.0);
+        assert!(
+            hob_ore > goblin_ore * 1.7,
+            "hobgoblin (×2) should far out-mine a goblin: {hob_ore} vs {goblin_ore}"
+        );
+    }
+
+    /// A Goblin Overseer's aura speeds nearby workers.
+    #[test]
+    fn overseer_aura_speeds_nearby_workers() {
+        use crate::state::creatures::Good;
+        let (data, mut a) = boot_on_config_seed();
+        a.economy.food = 800.0;
+        a.creatures.clear();
+        a.spawn_creature(&data, "goblin", Job::Miner);
+        let mine = a.buildings_of("mine").next().unwrap().pos;
+
+        let mut b = a.clone();
+        // An overseer stands at the warren centre, its aura over the mine.
+        b.spawn_creature(&data, "overseer", Job::Idle);
+
+        for _ in 0..600 {
+            tick(&mut a, &data);
+            tick(&mut b, &data);
+        }
+        let plain = a.building_at(mine).unwrap().stock(Good::Ore);
+        let auraed = b.building_at(mine).unwrap().stock(Good::Ore);
+        assert!(
+            auraed > plain * 1.2,
+            "the aura should visibly speed the miner: {auraed} vs {plain}"
+        );
+    }
+
+    /// Ledger: a Hobgoblin eats ~2.5× a goblin (specialist vs generalist).
+    #[test]
+    fn hobgoblin_upkeep_is_heavier() {
+        let (data, _) = boot_on_config_seed();
+        let gob = data.species.get("goblin").unwrap().food_per_min;
+        let hob = data.species.get("hobgoblin").unwrap().food_per_min;
+        assert!(
+            (hob / gob - 2.5).abs() < 0.01,
+            "hobgoblin should draw 2.5× a goblin, got {}×",
+            hob / gob
+        );
+    }
+
+    /// Breeding is gated on the ingot unlock, a breeding pit, and banked
+    /// ingots; only one Overseer at a time.
+    #[test]
+    fn breeding_is_gated_and_capped() {
+        use crate::state::structures::Building;
+        let (data, mut session) = boot_on_config_seed();
+        session.economy.ingots_stock = 20;
+
+        // No unlock yet.
+        assert!(!try_breed_hobgoblin(&mut session, &data));
+        session.unlocked.insert("hobgoblin".to_owned());
+        // Unlocked, but no breeding pit.
+        assert!(!try_breed_hobgoblin(&mut session, &data));
+
+        let spot = session
+            .world
+            .tiles
+            .iter_with_pos()
+            .find(|(pos, _)| session.can_place_building(*pos))
+            .map(|(pos, _)| pos)
+            .unwrap();
+        session.buildings.push(Building::new("breeding_pit", spot));
+        assert!(try_breed_hobgoblin(&mut session, &data));
+        assert!(session.creatures.iter().any(|c| c.species == "hobgoblin"));
+        assert_eq!(
+            session.economy.ingots_stock,
+            20 - data.balance.hobgoblin_ingot_cost
+        );
+
+        // One overseer per district.
+        session.unlocked.insert("overseer".to_owned());
+        assert!(try_breed_overseer(&mut session, &data));
+        assert!(!try_breed_overseer(&mut session, &data));
     }
 
     /// Designated rock gets carved into floor by miners.

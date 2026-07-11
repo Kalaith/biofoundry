@@ -199,6 +199,42 @@ impl Game {
                     self.selected_building = session.buildings_of("mine").next().map(|b| b.pos);
                 }
             }
+            "overseer" => {
+                self.transition(StateTransition::StartWarren);
+                if let GameState::Warren(session) = &mut self.state {
+                    // The evolution line: a lean elite crew — one Hobgoblin
+                    // miner in an Overseer's aura out-produces a mid-game
+                    // crowd. Count the legs on screen.
+                    session.tutorial_dismissed = true;
+                    session.economy.food = 400.0;
+                    session.unlocked.insert("hobgoblin".to_owned());
+                    session.unlocked.insert("overseer".to_owned());
+                    session.creatures.clear();
+                    session.spawn_creature(&self.data, "goblin", Job::Carrier);
+                    session.spawn_creature(&self.data, "hobgoblin", Job::Miner);
+                    session.spawn_creature(&self.data, "overseer", Job::Idle);
+                    let spawn = session.spawn_tile();
+                    let spot = session
+                        .world
+                        .tiles
+                        .iter_with_pos()
+                        .filter(|(pos, _)| session.can_place_building(*pos))
+                        .map(|(pos, _)| pos)
+                        .min_by_key(|p| (p.manhattan_distance(&spawn), p.x, p.y));
+                    if let Some(spot) = spot {
+                        session
+                            .buildings
+                            .push(crate::state::structures::Building::new(
+                                "breeding_pit",
+                                spot,
+                            ));
+                    }
+                    for _ in 0..400 {
+                        simulation::tick(session, &self.data);
+                    }
+                    self.selected_building = session.buildings_of("mine").next().map(|b| b.pos);
+                }
+            }
             "famine" => {
                 self.transition(StateTransition::StartWarren);
                 if let GameState::Warren(session) = &mut self.state {
@@ -555,6 +591,28 @@ impl Game {
                     mode
                 };
                 self.audio.play(Sfx::Select);
+            }
+            UiAction::Breed(species) => {
+                if let GameState::Warren(session) = &mut self.state {
+                    let ok = match species.as_str() {
+                        "hobgoblin" => simulation::try_breed_hobgoblin(session, &self.data),
+                        "overseer" => simulation::try_breed_overseer(session, &self.data),
+                        _ => false,
+                    };
+                    if ok {
+                        let name = if species == "overseer" {
+                            "A Goblin Overseer takes its post."
+                        } else {
+                            "A Hobgoblin lumbers out of the pit."
+                        };
+                        self.notifications.success(name);
+                        self.audio.play(Sfx::Capture);
+                    } else {
+                        self.notifications
+                            .warning("Needs the unlock, a breeding pit, and banked ingots.");
+                        self.audio.play(Sfx::Deny);
+                    }
+                }
             }
             UiAction::WorldClick(tile) => self.world_click(tile),
             UiAction::QueueOrder(pos, item) => {

@@ -27,6 +27,10 @@ pub struct GameConfig {
     pub tile_size: f32,
 }
 
+fn one_f32() -> f32 {
+    1.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeciesDef {
     pub id: String,
@@ -39,6 +43,10 @@ pub struct SpeciesDef {
     pub food_per_min: f32,
     pub move_tiles_per_sec: f32,
     pub carry_capacity: u32,
+    /// Multiplier on task work speed (mining, smithing, cooking, …) — a
+    /// Hobgoblin works ×2. Defaults to 1.0 for ordinary species.
+    #[serde(default = "one_f32")]
+    pub work_mult: f32,
     pub max_hp: f32,
     /// Innate damage per second (wild predators; worker jobs use balance
     /// values like `guard_dps` instead).
@@ -138,6 +146,14 @@ pub struct Balance {
     pub breed_interval_sec: f32,
     /// The breeding pit stops at this many living beetles.
     pub bred_beetle_cap: u32,
+    /// Ingots to breed a Hobgoblin (×2 work) at the Breeding Pit.
+    pub hobgoblin_ingot_cost: u32,
+    /// Ingots to breed a Goblin Overseer (the work-speed beacon).
+    pub overseer_ingot_cost: u32,
+    /// Overseer aura radius (tiles) and its work-speed multiplier for
+    /// workers standing within it.
+    pub overseer_aura_radius: f32,
+    pub overseer_aura_mult: f32,
     /// Food must recover above this after a blackout to count the famine
     /// as survived.
     pub famine_recover_food: f32,

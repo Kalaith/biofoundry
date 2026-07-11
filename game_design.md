@@ -125,7 +125,9 @@ All species live in `assets/data/species.json`.
 
 | Species | Diet | Upkeep | Carry | Role |
 | --- | --- | --- | --- | --- |
-| Goblin | food | 2/min (×2 cook/guard, ×0.5 idle) | 1 | The generalist. Reassignable between Miner / Carrier / Cook / Guard / Idle. |
+| Goblin | food | 2/min (×2 cook/guard/smith, ×0.5 idle) | 1 | The generalist. Reassignable between Miner / Carrier / Cook / Smith / Guard / Idle. |
+| Hobgoblin | food | 5/min | 1 | Heavyweight worker: **×2 work speed** at any job for ×2.5 upkeep — the specialist-vs-generalist ledger, now for labour itself. Bred at the Breeding Pit (unlock: forge 30 ingots). |
+| Goblin Overseer | food | 6/min | 0 | The living beacon: doesn't work, but **×1.35 work speed** to every worker in its aura. One per district. Bred at the Breeding Pit (unlock: forge 45 ingots). |
 | Beetle Hauler | food | 8/min | 5 | Dedicated hauler, 5× a goblin's load. Attracted for 25 ore; not reassignable. |
 | Salamander Smelter | **charcoal** | — | 0 | A living furnace: its meal is its fuel. Attracted for 20 ore; works the Smelter Den. |
 | Wild Beetle | — | — | — | Wanders in from the map edge (every ~100 s, max 2 loose). Capturable in snare traps. |
@@ -206,6 +208,11 @@ reassigned goblin drops job-mismatched gear back to the pool. No durability:
 gear is a permanent upgrade, and an upgraded workforce is *visible* (a glint
 on every equipped worker).
 
+Gear is one of **two multiplying upgrade axes**. The other is breeding (§5):
+a Hobgoblin miner (×2) wearing an Iron Pickaxe (×1.5), standing in a Goblin
+Overseer's aura (×1.35), mines at ~4× a bare goblin — so a mature warren runs
+on *fewer, better* creatures than a mid-game crowd at the same throughput.
+
 ## 7. Progression: capture → study → adapt
 
 No tech tree. `assets/data/unlocks.json` defines event-counter unlocks —
@@ -217,6 +224,8 @@ progression is a side effect of playing, and crises double as gates:
 | Raids survived | 1 | **Hardened Guards** (guard DPS ×1.5) |
 | Famines survived | 1 | **Preservation Techniques** (farm storage ×1.5) |
 | Ingots forged | 20 | **Worm Shrine** (the endgame) |
+| Ingots forged | 30 | **Hobgoblin Brood** (breed heavyweight workers) |
+| Ingots forged | 45 | **Goblin Overseer** (breed the work-speed beacon) |
 
 The capture loop: wild beetles wander the map → place snare traps in their
 path → captured specimens go to Study Pens → knowledge accumulates → counters
@@ -285,8 +294,8 @@ Repo-standard architecture; see `README.md` and `docs/`:
   `game_config.json`) — edit the JSON, not Rust constants.
 - UI is a pure view layer emitting `UiAction` intents; a dispatcher applies
   them. Headless capture scenes (`menu`, `warren`, `mine`, `blacksmith`,
-  `equipment`, `factory`, `famine`, `raid`, `breeding`, …) verify the UI
-  without interactive input.
+  `equipment`, `overseer`, `factory`, `famine`, `raid`, `breeding`, …) verify
+  the UI without interactive input.
 - Full save/load of the live sim (F5/F9, toolkit persistence).
 
 ## 12. Backlog / future directions

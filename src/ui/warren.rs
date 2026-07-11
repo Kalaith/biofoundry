@@ -31,6 +31,18 @@ pub fn draw_world(
         }
     }
     draw_build_sites(session, tile_size);
+    // Overseer auras: a faint ring shows the work-speed field it radiates.
+    for c in &session.creatures {
+        if c.species == "overseer" {
+            draw_circle_lines(
+                c.x * tile_size,
+                c.y * tile_size,
+                data.balance.overseer_aura_radius * tile_size,
+                2.0,
+                Color::new(0.90, 0.75, 0.35, 0.28),
+            );
+        }
+    }
     for creature in &session.creatures {
         draw_creature(creature, tile_size);
     }
@@ -638,6 +650,10 @@ fn creature_color(creature: &Creature) -> Color {
     match creature.species.as_str() {
         "beetle" => Color::new(0.62, 0.40, 0.75, 1.0),
         "salamander" => Color::new(0.92, 0.35, 0.18, 1.0),
+        // A heavyweight, darker green-goblin.
+        "hobgoblin" => Color::new(0.34, 0.52, 0.28, 1.0),
+        // The Overseer beacon: amber, matching its aura.
+        "overseer" => Color::new(0.90, 0.72, 0.30, 1.0),
         _ => match creature.job {
             Job::Miner => Color::new(0.45, 0.62, 0.85, 1.0),
             Job::Carrier => Color::new(0.85, 0.75, 0.38, 1.0),

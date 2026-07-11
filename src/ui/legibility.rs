@@ -4,10 +4,35 @@
 
 use crate::data::GameData;
 use crate::simulation::wildlife;
-use crate::state::creatures::{Good, Job, Task};
+use crate::state::creatures::{Creature, Good, Job, Task};
 use crate::state::structures::Building;
 use crate::state::GameSession;
 use macroquad_toolkit::grid::TilePos;
+
+/// A worker's species × Overseer-aura work multiplier, for display (the sim
+/// applies the same factor via `jobs::overseer_aura`). Equipment folds in
+/// separately at each work site.
+pub fn work_multiplier(creature: &Creature, session: &GameSession, data: &GameData) -> f32 {
+    let species_mult = data
+        .species
+        .get(&creature.species)
+        .map(|s| s.work_mult)
+        .unwrap_or(1.0);
+    let r2 = data.balance.overseer_aura_radius * data.balance.overseer_aura_radius;
+    let in_aura = session.creatures.iter().any(|o| {
+        o.species == "overseer" && {
+            let dx = o.x - creature.x;
+            let dy = o.y - creature.y;
+            dx * dx + dy * dy <= r2
+        }
+    });
+    species_mult
+        * if in_aura {
+            data.balance.overseer_aura_mult
+        } else {
+            1.0
+        }
+}
 
 /// What's wrong with a workstation right now — the in-world status icon.
 /// `None` (from [`building_status`]) means the node is running nominally.

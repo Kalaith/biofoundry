@@ -38,5 +38,25 @@
     "effect": "farm_cap_mult",
     "value": 1.5,
     "building": null
+  },
+  {
+    "id": "hobgoblin",
+    "name": "Hobgoblin Brood",
+    "description": "The forges run hot enough to raise a heavier breed. The Breeding Pit can raise Hobgoblins — twice the work for a heavier appetite.",
+    "counter": "ingots_forged",
+    "threshold": 30,
+    "effect": "unlock_creature",
+    "value": 0.0,
+    "building": null
+  },
+  {
+    "id": "overseer",
+    "name": "Goblin Overseer",
+    "description": "A living beacon: the Breeding Pit can raise an Overseer that drives every worker around it to labour faster.",
+    "counter": "ingots_forged",
+    "threshold": 45,
+    "effect": "unlock_creature",
+    "value": 0.0,
+    "building": null
   }
 ]

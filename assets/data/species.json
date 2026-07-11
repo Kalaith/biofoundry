@@ -11,6 +11,30 @@
     "reassignable": true
   },
   {
+    "id": "hobgoblin",
+    "name": "Hobgoblin",
+    "diet": "food",
+    "food_per_min": 5.0,
+    "move_tiles_per_sec": 2.0,
+    "carry_capacity": 1,
+    "work_mult": 2.0,
+    "max_hp": 36.0,
+    "attack_dps": 0.0,
+    "reassignable": true
+  },
+  {
+    "id": "overseer",
+    "name": "Goblin Overseer",
+    "diet": "food",
+    "food_per_min": 6.0,
+    "move_tiles_per_sec": 1.6,
+    "carry_capacity": 0,
+    "work_mult": 0.0,
+    "max_hp": 24.0,
+    "attack_dps": 0.0,
+    "reassignable": false
+  },
+  {
     "id": "beetle",
     "name": "Beetle Hauler",
     "diet": "food",

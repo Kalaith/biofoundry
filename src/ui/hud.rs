@@ -488,11 +488,11 @@ fn draw_inspect_panel(
     let name = def.map(|d| d.name.as_str()).unwrap_or(&building.kind);
 
     // The blacksmith panel carries the production-order queue and craft
-    // buttons, so it's taller.
-    let height = if building.kind == "blacksmith" {
-        150.0 + data.equipment.len() as f32 * 26.0
-    } else {
-        132.0
+    // buttons, and the breeding pit its breed buttons — both taller.
+    let height = match building.kind.as_str() {
+        "blacksmith" => 150.0 + data.equipment.len() as f32 * 26.0,
+        "breeding_pit" => 172.0,
+        _ => 132.0,
     };
     let panel = Rect::new(LOGICAL_WIDTH - 262.0, 210.0, 250.0, height);
     draw_surface_with_title(
@@ -526,14 +526,17 @@ fn draw_inspect_panel(
                 .iter()
                 .filter(|c| matches!(&c.task, Task::WorkMine(p) if *p == pos))
                 .map(|c| {
-                    let mult = c
+                    let pickaxe = c
                         .equipment
                         .as_deref()
                         .and_then(|id| data.equipment_def(id))
                         .filter(|e| e.effect == "mine_speed_mult")
                         .map(|e| e.value)
                         .unwrap_or(1.0);
-                    data.balance.mine_ore_per_min * mult
+                    // Species strength and any Overseer aura fold in too.
+                    data.balance.mine_ore_per_min
+                        * pickaxe
+                        * crate::ui::legibility::work_multiplier(c, session, data)
                 })
                 .sum();
             let (worker_txt, worker_col) = if building.reserve <= 0.0 {
@@ -648,6 +651,47 @@ fn draw_inspect_panel(
                 dark::TEXT,
                 &mut y,
             );
+        }
+        "breeding_pit" => {
+            line(
+                "Hatches beetles from studied stock.",
+                dark::TEXT_DIM,
+                &mut y,
+            );
+            // Evolution line: breed heavyweight workers once forged ingots
+            // unlock them. Buttons stay visible, disabled until then.
+            let bw = panel.w - 28.0;
+            y += 2.0;
+            let has_overseer = session.creatures.iter().any(|c| c.species == "overseer");
+            for (id, unlock, cost, blocked) in [
+                (
+                    "hobgoblin",
+                    "hobgoblin",
+                    data.balance.hobgoblin_ingot_cost,
+                    false,
+                ),
+                (
+                    "overseer",
+                    "overseer",
+                    data.balance.overseer_ingot_cost,
+                    has_overseer,
+                ),
+            ] {
+                let unlocked = session.unlocked.contains(unlock);
+                let name = data.species.get(id).map(|s| s.name.as_str()).unwrap_or(id);
+                let label = if !unlocked {
+                    format!("{name} 🔒")
+                } else if blocked {
+                    format!("{name} — posted")
+                } else {
+                    format!("Breed {name} ({cost} ingots)")
+                };
+                let enabled = unlocked && !blocked && session.economy.ingots_stock >= cost;
+                if hud_button(Rect::new(x, y, bw, 24.0), &label, enabled, mouse) {
+                    actions.push(UiAction::Breed(id.to_owned()));
+                }
+                y += 28.0;
+            }
         }
         _ => {
             line("Click empty ground to deselect", dark::TEXT_DIM, &mut y);

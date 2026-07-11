@@ -33,8 +33,16 @@ pub fn tick_creatures(session: &mut GameSession, data: &GameData, dt: f32) {
         }
     }
 
+    // Overseer posts: workers within an aura radius labour faster. Snapshot
+    // positions before the loop (creatures are taken out of the session).
+    let overseers: Vec<(f32, f32)> = creatures
+        .iter()
+        .filter(|c| c.species == "overseer")
+        .map(|c| (c.x, c.y))
+        .collect();
+
     for creature in &mut creatures {
-        tick_creature(creature, session, data, dt, &mut claims);
+        tick_creature(creature, session, data, dt, &mut claims, &overseers);
     }
     session.creatures = creatures;
 }
@@ -45,6 +53,7 @@ fn tick_creature(
     data: &GameData,
     dt: f32,
     claims: &mut MineClaims,
+    overseers: &[(f32, f32)],
 ) {
     let Some(species) = data.species.get(&creature.species).cloned() else {
         return;
@@ -61,18 +70,42 @@ fn tick_creature(
         return;
     }
 
+    // Task work speed = brownout × species multiplier (a Hobgoblin works
+    // ×2) × any Overseer aura the worker stands in. These stack with
+    // per-job equipment multipliers applied at each work site.
+    let work_boost = species.work_mult * overseer_aura(creature, overseers, data);
+
     match creature.job {
         Job::Idle => {
             if creature.task != Task::Idle {
                 creature.clear_task();
             }
         }
-        Job::Miner => tick_miner(creature, session, data, dt, claims),
-        Job::Carrier => tick_carrier(creature, session, data, &species, dt),
-        Job::Cook => tick_cook(creature, session, data, dt),
-        Job::Smith => tick_smith(creature, session, data, dt),
-        Job::Guard => tick_guard(creature, session, data, dt),
-        Job::Smelter => tick_smelter(creature, session, data, dt),
+        Job::Miner => tick_miner(creature, session, data, dt, claims, work_boost),
+        Job::Carrier => tick_carrier(creature, session, data, &species, dt, work_boost),
+        Job::Cook => tick_cook(creature, session, data, dt, work_boost),
+        Job::Smith => tick_smith(creature, session, data, dt, work_boost),
+        Job::Guard => tick_guard(creature, session, data, dt, work_boost),
+        Job::Smelter => tick_smelter(creature, session, data, dt, work_boost),
+    }
+}
+
+/// The Overseer aura multiplier for a worker: ×`overseer_aura_mult` when it
+/// stands within `overseer_aura_radius` of any Overseer, else 1.0.
+fn overseer_aura(creature: &Creature, overseers: &[(f32, f32)], data: &GameData) -> f32 {
+    if overseers.is_empty() {
+        return 1.0;
+    }
+    let r2 = data.balance.overseer_aura_radius * data.balance.overseer_aura_radius;
+    let in_range = overseers.iter().any(|(ox, oy)| {
+        let dx = ox - creature.x;
+        let dy = oy - creature.y;
+        dx * dx + dy * dy <= r2
+    });
+    if in_range {
+        data.balance.overseer_aura_mult
+    } else {
+        1.0
     }
 }
 
@@ -172,6 +205,7 @@ fn tick_miner(
     data: &GameData,
     dt: f32,
     claims: &mut MineClaims,
+    work_boost: f32,
 ) {
     match creature.task.clone() {
         Task::Idle => decide_miner(creature, session, data, claims),
@@ -213,7 +247,7 @@ fn tick_miner(
             // the extraction rate — the feedback loop the factory runs on.
             let pickaxe = equip_effect(creature, data, "mine_speed_mult").unwrap_or(1.0);
             let headroom = (cap - b.stock(Good::Ore)).max(0.0);
-            let amount = (rate / 60.0 * dt * creature.work_speed() * pickaxe)
+            let amount = (rate / 60.0 * dt * creature.work_speed() * work_boost * pickaxe)
                 .min(b.reserve)
                 .min(headroom);
             if amount > 0.0 {
@@ -234,7 +268,7 @@ fn tick_miner(
             }
         }
         Task::Digging { mark, remaining } => {
-            let left = remaining - dt * creature.work_speed();
+            let left = remaining - dt * creature.work_speed() * work_boost;
             if left > 0.0 {
                 creature.task = Task::Digging {
                     mark,
@@ -334,6 +368,7 @@ fn tick_carrier(
     data: &GameData,
     species: &SpeciesDef,
     dt: f32,
+    work_boost: f32,
 ) {
     match creature.task.clone() {
         Task::Idle => choose_carrier_work(creature, session, data, species),
@@ -348,7 +383,7 @@ fn tick_carrier(
             }
         }
         Task::Fetching { source, remaining } => {
-            let left = remaining - dt * creature.work_speed();
+            let left = remaining - dt * creature.work_speed() * work_boost;
             if left > 0.0 {
                 creature.task = Task::Fetching {
                     source,
@@ -388,7 +423,7 @@ fn tick_carrier(
             }
         }
         Task::PickingUpOre { remaining } => {
-            let left = remaining - dt * creature.work_speed();
+            let left = remaining - dt * creature.work_speed() * work_boost;
             if left > 0.0 {
                 creature.task = Task::PickingUpOre { remaining: left };
                 return;
@@ -806,7 +841,13 @@ fn complete_finished_sites(session: &mut GameSession, data: &GameData) {
 
 // ----------------------------------------------------------------- cooks
 
-fn tick_cook(creature: &mut Creature, session: &mut GameSession, data: &GameData, dt: f32) {
+fn tick_cook(
+    creature: &mut Creature,
+    session: &mut GameSession,
+    data: &GameData,
+    dt: f32,
+    work_boost: f32,
+) {
     let batch = data.balance.cook_batch_mushrooms;
     match creature.task.clone() {
         Task::Idle => {
@@ -839,7 +880,7 @@ fn tick_cook(creature: &mut Creature, session: &mut GameSession, data: &GameData
         }
         Task::GoCook(_) => creature.task = Task::Idle,
         Task::Cooking { pot, remaining } => {
-            let left = remaining - dt * creature.work_speed();
+            let left = remaining - dt * creature.work_speed() * work_boost;
             if left > 0.0 {
                 creature.task = Task::Cooking {
                     pot,
@@ -858,7 +899,13 @@ fn tick_cook(creature: &mut Creature, session: &mut GameSession, data: &GameData
 
 /// Guards chase raiders and fight them; otherwise they stand watch near
 /// the stockpile (the raid target).
-fn tick_guard(creature: &mut Creature, session: &mut GameSession, data: &GameData, dt: f32) {
+fn tick_guard(
+    creature: &mut Creature,
+    session: &mut GameSession,
+    data: &GameData,
+    dt: f32,
+    work_boost: f32,
+) {
     match creature.task.clone() {
         Task::Idle => {
             if let Some(target) = nearest_raider(creature, session) {
@@ -881,9 +928,11 @@ fn tick_guard(creature: &mut Creature, session: &mut GameSession, data: &GameDat
             }
         }
         Task::Hunt { target } => {
-            // A Guard Blade multiplies DPS, stacking with Hardened Guards.
+            // A Guard Blade multiplies DPS, stacking with Hardened Guards;
+            // species strength and any Overseer aura fold in via work_boost.
             let blade = equip_effect(creature, data, "guard_dps_mult").unwrap_or(1.0);
-            let dps = wildlife::guard_dps(session, data) * creature.work_speed() * blade;
+            let dps =
+                wildlife::guard_dps(session, data) * creature.work_speed() * work_boost * blade;
             let Some(wild) = session.wilds.iter_mut().find(|w| w.id == target) else {
                 creature.task = Task::Idle;
                 return;
@@ -923,7 +972,13 @@ fn nearest_raider(creature: &Creature, session: &GameSession) -> Option<u32> {
 
 /// Salamanders: the living furnace. A batch claims ore + charcoal from
 /// the den; the charcoal is also the salamander's meal (diet chain).
-fn tick_smelter(creature: &mut Creature, session: &mut GameSession, data: &GameData, dt: f32) {
+fn tick_smelter(
+    creature: &mut Creature,
+    session: &mut GameSession,
+    data: &GameData,
+    dt: f32,
+    work_boost: f32,
+) {
     let b = &data.balance;
     match creature.task.clone() {
         Task::Idle => {
@@ -971,7 +1026,7 @@ fn tick_smelter(creature: &mut Creature, session: &mut GameSession, data: &GameD
         }
         Task::GoSmelt(_) => creature.task = Task::Idle,
         Task::Smelting { den, remaining } => {
-            let left = remaining - dt * creature.work_speed();
+            let left = remaining - dt * creature.work_speed() * work_boost;
             if left > 0.0 {
                 creature.task = Task::Smelting {
                     den,
@@ -999,7 +1054,13 @@ fn tick_smelter(creature: &mut Creature, session: &mut GameSession, data: &GameD
 /// charcoal chain stays the bulk upgrade. When the shop has a queued
 /// production order and enough banked ingots, the smith crafts equipment
 /// instead — the player's first explicit production verb.
-fn tick_smith(creature: &mut Creature, session: &mut GameSession, data: &GameData, dt: f32) {
+fn tick_smith(
+    creature: &mut Creature,
+    session: &mut GameSession,
+    data: &GameData,
+    dt: f32,
+    work_boost: f32,
+) {
     let b = &data.balance;
     // A Smith's Hammer speeds the smith's work.
     let hammer = equip_effect(creature, data, "smith_time_mult").unwrap_or(1.0);
@@ -1054,7 +1115,7 @@ fn tick_smith(creature: &mut Creature, session: &mut GameSession, data: &GameDat
         }
         Task::GoSmith(_) => creature.task = Task::Idle,
         Task::Smithing { shop, remaining } => {
-            let left = remaining - dt * creature.work_speed();
+            let left = remaining - dt * creature.work_speed() * work_boost;
             if left > 0.0 {
                 creature.task = Task::Smithing {
                     shop,
@@ -1073,7 +1134,7 @@ fn tick_smith(creature: &mut Creature, session: &mut GameSession, data: &GameDat
             item,
             remaining,
         } => {
-            let left = remaining - dt * creature.work_speed();
+            let left = remaining - dt * creature.work_speed() * work_boost;
             if left > 0.0 {
                 creature.task = Task::Crafting {
                     shop,
