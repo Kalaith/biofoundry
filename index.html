@@ -108,6 +108,16 @@
     <!-- Player bug reporting -> Project Roost Fix Queue (shared widget). -->
     <div id="roost-bug-report" data-roost-slug="rust_biofoundry"></div>
     <script src="../bug-report.js"></script>
+    <!-- Ko-fi support widget (https://ko-fi.com/webhatchery) -->
+    <script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
+    <script>
+        kofiWidgetOverlay.draw('webhatchery', {
+            'type': 'floating-chat',
+            'floating-chat.donateButton.text': 'Support me',
+            'floating-chat.donateButton.background-color': '#00b9fe',
+            'floating-chat.donateButton.text-color': '#fff'
+        });
+    </script>
 </body>
 
 </html>
