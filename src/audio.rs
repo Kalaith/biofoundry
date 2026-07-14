@@ -4,8 +4,8 @@
 //! without an audio device (headless capture, muted browsers, etc.).
 
 use macroquad_toolkit::audio::SoundManager;
-use macroquad_toolkit::persistence::{load_json_key, save_json_key};
-use serde::{Deserialize, Serialize};
+use macroquad_toolkit::persistence::load_json_key;
+use macroquad_toolkit::settings::{GameSettings, SETTINGS_KEY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Sfx {
@@ -86,23 +86,19 @@ impl Audio {
         self.manager.sfx_volume = volume.clamp(0.0, 1.0);
     }
 
-    /// Apply the persisted volume, if the player saved one.
+    /// Apply the persisted volume, if the player saved one. Leaves the
+    /// startup default untouched when no settings file exists yet — unlike
+    /// `GameSettings::load`, which would silently swap in its own
+    /// (louder) default volume.
     pub fn load_settings(&mut self, game_name: &str) {
-        if let Ok(settings) = load_json_key::<AudioSettings>(game_name, "settings") {
+        if let Ok(settings) = load_json_key::<GameSettings>(game_name, SETTINGS_KEY) {
             self.set_volume(settings.sfx_volume);
         }
     }
 
     pub fn save_settings(&self, game_name: &str) {
-        let settings = AudioSettings {
-            sfx_volume: self.manager.sfx_volume,
-        };
-        let _ = save_json_key(game_name, "settings", &settings);
+        let mut settings = GameSettings::load(game_name);
+        settings.sfx_volume = self.manager.sfx_volume;
+        let _ = settings.save(game_name);
     }
-}
-
-/// Player-tunable audio settings, persisted alongside the save slot.
-#[derive(Serialize, Deserialize)]
-struct AudioSettings {
-    sfx_volume: f32,
 }

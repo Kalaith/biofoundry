@@ -10,7 +10,7 @@ use crate::ui::{HudFrame, UiAction, UiMode, LOGICAL_HEIGHT, LOGICAL_WIDTH};
 use macroquad::prelude::*;
 use macroquad_toolkit::grid::TilePos;
 use macroquad_toolkit::prelude::*;
-use macroquad_toolkit::ui::draw_ui_text_ex;
+use macroquad_toolkit::ui::{draw_ui_text_ex, format_mmss};
 
 const PANEL_W: f32 = 252.0;
 
@@ -120,7 +120,7 @@ fn draw_top_bar(session: &GameSession, bar: Rect, mouse: Vec2, actions: &mut Vec
 
     let seconds = simulation::sim_seconds(session);
     draw_ui_text_ex(
-        &format!("{:02}:{:02}", (seconds / 60.0) as u32, seconds as u32 % 60),
+        &format_mmss(seconds),
         bar.x + 290.0,
         bar.y + 31.0,
         TextStyle::new(18.0, dark::TEXT).params(),

@@ -12,6 +12,15 @@ A collection of common utilities for Macroquad game development, extracted from 
 - **Color palettes**: Consistent dark theme colors
 - **Sprite system**: Builder pattern for texture rendering with transformations
 - **Screenshot capture**: Env-var-driven headless capture harness for visual verification
+- **Color helpers**: `with_alpha`, `lighten`/`darken`, `mix`, HSV conversion, hue shift
+- **Math**: lerp/smoothstep/approach, easing curves, time-based pulse, `Tween`
+- **Timing**: `Cooldown`, `Timer`, `IntervalTimer`, `Timeline` phase sequencer
+- **FX**: trauma screen shake, screen fades, pooled particles, floating text
+- **Form widgets**: toggle, checkbox, slider, stepper, segmented bar, keycap
+- **Scroll & tabs**: `ScrollArea` with drawn scrollbar, tab bars / nav columns
+- **Settings**: shared `GameSettings` (volume groups, fullscreen, UI scale) with persistence
+- **Achievements**: unlock registry that serializes into saves
+- **Debug overlay**: toggleable smoothed FPS/frame-time panel
 
 ## Usage
 
@@ -171,6 +180,144 @@ Available colors:
 - `TEXT`, `TEXT_BRIGHT`, `TEXT_DIM`
 - `ACCENT`, `POSITIVE`, `WARNING`, `NEGATIVE`
 - `HOVERED`
+
+Color manipulation helpers — do **not** hand-roll `Color::new(c.r, c.g, c.b, a)`
+or per-channel brighten/darken/mix in game code:
+
+```rust
+use macroquad_toolkit::colors::{with_alpha, multiply_alpha, lighten, darken, mix, shift_hue};
+
+let faded = with_alpha(dark::ACCENT, 0.4);      // replace alpha
+let ghost = multiply_alpha(translucent, 0.5);   // scale existing alpha
+let hover = lighten(base, 0.1);                 // additive per-channel
+let shade = darken(base, 0.15);
+let blend = mix(a, b, t);                       // component lerp (alias: lerp_color)
+let variant = shift_hue(base, 40.0);            // HSV hue rotation
+```
+
+### Math (`math` module)
+
+Interpolation and easing primitives — use these instead of private `lerp`/`ease_*` copies:
+
+```rust
+use macroquad_toolkit::math::{lerp, inv_lerp, remap, smoothstep, approach, exp_approach,
+                              ease_out_cubic, ease_out_back, pulse01, pulse_range, bob,
+                              hash_str, Tween};
+
+let x = lerp(a, b, t);
+let glow = pulse_range(3.0, 0.55, 0.77);   // replaces (get_time()*k).sin() idioms
+let mut slide = Tween::new(0.0, 8.0);      // exponential ease-toward-target
+slide.set_target(panel_x);
+slide.update(dt);
+let seed = hash_str(&entity_id);           // FNV-1a, stable procedural seeds
+```
+
+### Timing (`timing` module)
+
+Replaces bare `f32` cooldown fields, `accum` tickers, and hand-stepped phase machines:
+
+```rust
+use macroquad_toolkit::timing::{Cooldown, Timer, IntervalTimer, Timeline};
+
+let mut fire = Cooldown::new(0.5);
+if wants_fire && fire.try_trigger() { /* shoot */ }
+fire.tick(dt);
+
+let mut flash = Timer::new(0.3);            // one-shot with 0..1 progress
+let mut spawner = IntervalTimer::new(2.0);  // fires N times per update
+for _ in 0..spawner.tick(dt) { /* spawn */ }
+
+let mut swing = Timeline::new(vec![(Phase::WindUp, 0.2), (Phase::Strike, 0.1)]);
+swing.advance(dt);
+if let Some((phase, progress)) = swing.current() { /* animate */ }
+```
+
+### FX (`fx` module)
+
+```rust
+use macroquad_toolkit::fx::{ScreenShake, ScreenFade, ParticleSystem, BurstConfig, FloatingTextLayer};
+
+let mut shake = ScreenShake::new(12.0);     // trauma model: offset ~ trauma^2
+shake.add_trauma(0.4);
+shake.update(dt);
+let cam_offset = shake.offset();
+
+let mut fade = ScreenFade::new(0.4);        // scene transitions
+fade.fade_out();
+if fade.update(dt) { /* swap scene, then fade.fade_in() */ }
+fade.draw();
+
+let mut particles = ParticleSystem::new();  // capped pool
+particles.spawn_burst(hit_pos, 12, &BurstConfig::default());
+particles.update(dt);
+particles.draw();
+
+let mut floaters = FloatingTextLayer::new(); // damage numbers / gains
+floaters.spawn("+5", world_pos, GOLD);
+floaters.update(dt);
+floaters.draw();                             // inside camera for world anchor
+```
+
+### Form widgets, scroll, and tabs (`ui` module)
+
+```rust
+use macroquad_toolkit::ui::{toggle_row, checkbox, slider_row, stepper_row,
+                            segmented_bar, keycap_hint, ScrollArea, tab_bar, nav_column};
+
+toggle_row(row, "Screen shake", &mut settings.screen_shake);
+slider_row(row2, "Music", &mut settings.music_volume, 0.0, 1.0);
+match stepper_row(row3, "UI scale", &format!("{:.0}%", scale * 100.0)) {
+    d if d != 0 => { /* apply step */ }
+    _ => {}
+}
+
+let mut scroll = ScrollArea::new();          // keep in state
+scroll.update(list_rect, content_height);
+// draw rows offset by -scroll.offset(), then:
+scroll.draw_scrollbar(list_rect, content_height);
+
+if let Some(clicked) = tab_bar(bar_rect, &["Stats", "Gear", "Log"], active_tab) {
+    active_tab = clicked;
+}
+```
+
+### Settings (`settings` module)
+
+```rust
+use macroquad_toolkit::settings::GameSettings;
+
+let mut settings = GameSettings::load("my_game");   // defaults when missing
+settings.apply_display();                            // fullscreen + UI text scale
+sound.play_sfx(Sfx::Hit, settings.effective_sfx_volume());
+settings.save("my_game").ok();
+```
+
+### Achievements (`achievements` module)
+
+```rust
+use macroquad_toolkit::achievements::{Achievement, Achievements};
+
+let mut achievements = Achievements::from_definitions(vec![
+    Achievement::new("first_win", "First Win", "Win a run."),
+]);
+if achievements.unlock("first_win") { notifications.success("Achievement: First Win"); }
+let (done, total) = achievements.progress();
+// Serialize into the save; call sync_definitions(defs) after load.
+```
+
+### Debug overlay (`debug` module)
+
+```rust
+use macroquad_toolkit::debug::DebugOverlay;
+
+let mut overlay = DebugOverlay::new();      // keep in Game
+overlay.record_frame(get_frame_time());     // every frame
+if is_key_pressed(KeyCode::F3) { overlay.toggle(); }
+overlay.draw(&[format!("entities: {}", count)]);
+```
+
+Time formatting lives beside the money formatters in `ui`:
+`format_mmss(secs)`, `format_hmmss(secs)`, `format_clock(hour, minute)`.
 
 ### RNG (`rng` module)
 
