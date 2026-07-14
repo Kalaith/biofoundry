@@ -87,7 +87,38 @@
     <!-- Macroquad JS Bundle -->
     <script src="mq_js_bundle.js"></script>
     <script>
-        document.getElementById('loading').style.display = 'none';
+        (function () {
+            var overlay = document.getElementById('loading');
+            var glcanvas = document.getElementById('glcanvas');
+            // Keep macroquad's drawing buffer matched to the canvas CSS size. The
+            // engine only re-measures on the window 'resize' event, but the
+            // responsive container can change size without firing one, which leaves
+            // mouse input offset from the rendered UI (the classic "cursor is in the
+            // wrong place" bug). Its onresize handler dereferences wasm_exports, so
+            // only sync once the game module has loaded.
+            function syncCanvasSize() {
+                if (window.wasm_exports) window.dispatchEvent(new Event('resize'));
+            }
+            // Reveal the canvas only once the wasm has instantiated and started
+            // (mq_js_bundle sets the global wasm_exports just before calling main()),
+            // instead of synchronously while the ~2 MB module is still downloading.
+            var waitStart = Date.now();
+            (function waitForGame() {
+                if (window.wasm_exports) {
+                    requestAnimationFrame(function () {
+                        if (overlay) overlay.style.display = 'none';
+                        syncCanvasSize();
+                        if (window.ResizeObserver && glcanvas) {
+                            new ResizeObserver(syncCanvasSize).observe(glcanvas);
+                        }
+                    });
+                } else if (Date.now() - waitStart > 30000) {
+                    if (overlay) overlay.style.display = 'none';
+                } else {
+                    requestAnimationFrame(waitForGame);
+                }
+            })();
+        })();
         
         load("biofoundry.wasm");
 
