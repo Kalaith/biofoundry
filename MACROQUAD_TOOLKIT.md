@@ -21,6 +21,12 @@ A collection of common utilities for Macroquad game development, extracted from 
 - **Settings**: shared `GameSettings` (volume groups, fullscreen, UI scale) with persistence
 - **Achievements**: unlock registry that serializes into saves
 - **Debug overlay**: toggleable smoothed FPS/frame-time panel
+- **Raster**: CPU pixel drawing onto `Image` (primitives, Bresenham, seeded noise)
+- **Sprite variation**: seeded HSV-region recolor with per-(id, seed) texture cache
+- **Projectiles**: `ProjectileLayer` travel-lerp visuals delivering payloads on arrival
+- **Hover tooltip**: delayed, fading tooltip state (`HoverTooltip`)
+- **Plaques**: ornamented title/menu buttons with corner marks and style hooks
+- **Menu cursor**: wrap-around keyboard selection for pause/settings menus
 
 ## Usage
 
@@ -82,6 +88,12 @@ let input = InputState::capture();
 if input.left_click {
     // ...
 }
+
+// Keyboard-driven menus: wrap-around cursor + standard key readers
+let mut cursor = MenuCursor::new(options.len());   // keep in state
+cursor.navigate(menu_nav_vertical());              // Up/W, Down/S
+volume += menu_nav_horizontal() as f32 * 0.1;      // Left/A, Right/D
+if input.enter_pressed { activate(options[cursor.index()]); }
 ```
 
 ### UI (`ui` module)
@@ -185,12 +197,15 @@ Color manipulation helpers — do **not** hand-roll `Color::new(c.r, c.g, c.b, a
 or per-channel brighten/darken/mix in game code:
 
 ```rust
-use macroquad_toolkit::colors::{with_alpha, multiply_alpha, lighten, darken, mix, shift_hue};
+use macroquad_toolkit::colors::{with_alpha, multiply_alpha, lighten, darken, shade, tint,
+                                mix, shift_hue};
 
 let faded = with_alpha(dark::ACCENT, 0.4);      // replace alpha
 let ghost = multiply_alpha(translucent, 0.5);   // scale existing alpha
 let hover = lighten(base, 0.1);                 // additive per-channel
-let shade = darken(base, 0.15);
+let dim = darken(base, 0.15);
+let shadowed = shade(base, 0.3);                // blend toward black (multiplicative)
+let pale = tint(base, 0.3);                     // blend toward white
 let blend = mix(a, b, t);                       // component lerp (alias: lerp_color)
 let variant = shift_hue(base, 40.0);            // HSV hue rotation
 ```
@@ -258,6 +273,22 @@ floaters.update(dt);
 floaters.draw();                             // inside camera for world anchor
 ```
 
+Attack visuals that lerp toward a target and resolve a hit on arrival use
+`ProjectileLayer<T>` — the payload is whatever your game needs to apply the
+impact (serde round-trips for saves):
+
+```rust
+use macroquad_toolkit::fx::{ProjectileLayer, TravelingProjectile};
+
+let mut projectiles: ProjectileLayer<Impact> = ProjectileLayer::new();
+projectiles.spawn(attacker_pos, target_pos, 0.3, Impact { defender, damage });
+projectiles.push(                                     // melee slash: stays near attacker
+    TravelingProjectile::new(a, b, 0.15, impact).with_travel_ratio(0.3),
+);
+for impact in projectiles.update(dt) { apply_damage(impact); }
+for p in projectiles.iter() { draw_at(p.position(), p.progress()); }
+```
+
 ### Form widgets, scroll, and tabs (`ui` module)
 
 ```rust
@@ -279,6 +310,41 @@ scroll.draw_scrollbar(list_rect, content_height);
 if let Some(clicked) = tab_bar(bar_rect, &["Stats", "Gear", "Log"], active_tab) {
     active_tab = clicked;
 }
+```
+
+### Hover tooltips and menu plaques (`ui` module)
+
+`HoverTooltip` adds a show delay and fade-in/out on top of the stateless
+`draw_tooltip`: widgets report hover during drawing, and the owner draws once
+at the end of the frame so the tooltip renders above everything.
+
+```rust
+use macroquad_toolkit::ui::{HoverTooltip, TooltipStyle};
+
+let mut tooltip = HoverTooltip::new();          // keep in UI state
+// While drawing each widget:
+tooltip.hover_rect("forge-btn", "Forge a new blade", btn_rect, mouse, get_time());
+// End of frame (applies fade alpha to the style):
+tooltip.draw(&TooltipStyle::default(), None, get_time());
+```
+
+Plaques are the ornamented title/pause-menu buttons (drop shadow, framed
+face, corner tick marks). `PlaqueStyle` exposes hooks for the parts games
+differ on — bevel band, inner borders, top highlight, mark placement — and
+`PlaquePalette` maps interaction state to face colors, one palette per tone:
+
+```rust
+use macroquad_toolkit::ui::{plaque_button, plaque_button_ex, draw_plaque,
+                            draw_corner_marks, PlaquePalette, PlaqueStyle};
+
+let style = PlaqueStyle::default();             // build once per screen/tone
+let palette = PlaquePalette::default();
+if plaque_button(rect, "New Game", &style, &palette, enabled, logical_mouse) {
+    // activated (released over the button)
+}
+// Keyboard menus: highlight the MenuCursor's row
+plaque_button_ex(rect, "Resume", &style, &palette, true, cursor.index() == i, mouse);
+draw_corner_marks(panel_rect, gold);            // standalone decorations
 ```
 
 ### Settings (`settings` module)
@@ -363,6 +429,42 @@ let sprite = Sprite::new()
     .colored(RED);
 
 sprite.draw();
+```
+
+Per-entity visual diversity from one image: `SpriteVariationCache` recolors
+hue/saturation regions of a base sprite deterministically per seed and caches
+the resulting textures.
+
+```rust
+use macroquad_toolkit::sprite::{ColorRegion, SpriteVariationCache, SpriteVariationConfig};
+
+let mut variations = SpriteVariationCache::new();   // keep in render state
+variations.register("goblin", SpriteVariationConfig {
+    color_regions: vec![
+        ColorRegion::new("skin", 60.0, 150.0, 0.3, 0.8, 0.8),  // green hues
+        ColorRegion::new("cloth", 0.0, 360.0, 0.3, 1.0, 1.5),
+    ],
+    variation_strength: 0.7,
+});
+let texture = variations.get_or_create("goblin", entity.variation_seed, &base_texture);
+```
+
+### Raster (`raster` module)
+
+CPU-side pixel drawing onto an `Image` for procedural art (sprites,
+portraits, generated textures). Everything clips against the image bounds;
+noise is seeded and deterministic.
+
+```rust
+use macroquad_toolkit::raster::{fill_rect, fill_circle, fill_ellipse,
+                                draw_line_pixels, add_noise, set_pixel_safe};
+
+let mut image = Image::gen_image_color(64, 64, BLANK);
+fill_rect(&mut image, 4, 4, 56, 40, wall_color);
+fill_ellipse(&mut image, 32, 50, 20, 8, shadow_color);
+draw_line_pixels(&mut image, 0, 63, 63, 0, trim_color);   // Bresenham
+add_noise(&mut image, seed, 0.15);                        // grain, stable per seed
+let texture = Texture2D::from_image(&image);
 ```
 
 ### Capture (`capture` module)
