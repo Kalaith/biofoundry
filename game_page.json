@@ -1,0 +1,20 @@
+{
+  "title": "Biofoundry",
+  "status": { "text": "Playable", "class": "playable" },
+  "canvas_rendering": "pixelated",
+  "about": [
+    "A factory/colony hybrid where every piece of automation is a living creature and food is the power grid. Dig a warren, feed your goblins, and keep the calorie balance out of the red."
+  ],
+  "controls": [
+    { "key": "Right Mouse", "desc": "Drag camera" },
+    { "key": "WASD / Arrows", "desc": "Pan camera" },
+    { "key": "Mouse Wheel", "desc": "Zoom camera" },
+    { "key": "Esc", "desc": "Back to menu" }
+  ],
+  "details": [
+    { "label": "Genre", "value": "Factory / Colony Sim" },
+    { "label": "Engine", "value": "Macroquad + Toolkit" },
+    { "label": "Platform", "value": "Browser, Windows" }
+  ],
+  "repository": "https://github.com/Kalaith/biofoundry"
+}
